@@ -17,7 +17,6 @@ const SESSION_ID =
         return id;
     })();
 
-// Where we persist the chat
 const CHAT_STORAGE_KEY = "tmu-chat-history";
 
 
@@ -46,9 +45,7 @@ const newChatBtn = document.getElementById("newChatBtn");
 let isSending = false;
 let isRestoring = false;
 
-// Tracks whether the backend has responded at least once
-// in this browser session. Once true, we don't show
-// the "server waking up" message again.
+// Has the backend responded at least once this session?
 let serverAwake =
     sessionStorage.getItem("tmu-server-awake") === "1";
 
@@ -136,16 +133,15 @@ function saveChat() {
         if (!content) return;
 
         const sourceBox = content.querySelector(".source-box");
-        const copyBtn = content.querySelector(".copy-btn");
 
-        // Extract text only (exclude source box + copy button)
         let text = "";
-        const textNodes = Array.from(content.childNodes).filter(n => {
-            return n.nodeType === Node.TEXT_NODE;
+        Array.from(content.childNodes).forEach(n => {
+            if (n.nodeType === Node.TEXT_NODE) {
+                text += n.textContent;
+            }
         });
-        text = textNodes.map(n => n.textContent).join("").trim();
+        text = text.trim();
 
-        // Sources (from links)
         const sources = [];
         if (sourceBox) {
             sourceBox.querySelectorAll(".source-link").forEach(a => {
@@ -216,22 +212,16 @@ async function sendMessage() {
     const loadingMessage = addLoadingMessage();
 
     // --- Slow-response hint ---
-    // If the server hasn't been reached yet this session, show a
-    // cold-start message after 3 s. Otherwise show a neutral
-    // "still thinking" message after 8 s.
     let wakingTimer = null;
 
     if (!serverAwake) {
-
         wakingTimer = setTimeout(() => {
             setLoadingText(
                 loadingMessage,
                 "Server is waking up… this may take up to 60 seconds on the first request."
             );
         }, 3000);
-
     } else {
-
         wakingTimer = setTimeout(() => {
             setLoadingText(
                 loadingMessage,
@@ -239,7 +229,6 @@ async function sendMessage() {
             );
         }, 8000);
     }
-}
 
     try {
         const response = await fetch(
@@ -261,11 +250,14 @@ async function sendMessage() {
         }
 
         const data = await response.json();
-        // Mark the server as awake for the rest of this session
+
+        // Mark the server as awake for this session
         if (!serverAwake) {
             serverAwake = true;
-            sessionStorage.setItem("tmu-server-awake", "1");
-    }
+            try {
+                sessionStorage.setItem("tmu-server-awake", "1");
+            } catch (e) {}
+        }
 
         loadingMessage.remove();
 
@@ -282,7 +274,7 @@ async function sendMessage() {
         loadingMessage.remove();
 
         addMessage(
-            "Sorry, I couldn't connect to the TMU assistant server. Please make sure the FastAPI server is running.",
+            "Sorry, I couldn't connect to the TMU assistant server. Please try again in a moment.",
             "bot"
         );
     }
@@ -310,14 +302,12 @@ function addMessage(text, sender, sources = []) {
     const content = document.createElement("div");
     content.className = "message-content";
 
-    // Main text node
     const textNode = document.createTextNode(text);
     content.appendChild(textNode);
 
     message.appendChild(avatar);
     message.appendChild(content);
 
-    // Sources
     if (
         sender === "bot" &&
         Array.isArray(sources) &&
@@ -326,7 +316,6 @@ function addMessage(text, sender, sources = []) {
         addSources(content, sources);
     }
 
-    // Copy button on bot messages
     if (sender === "bot") {
         addCopyButton(content, text);
     }
@@ -460,7 +449,6 @@ function getSourceName(url) {
         let lastPart = parts[parts.length - 1];
 
         const isPdf = lastPart.toLowerCase().endsWith(".pdf");
-
         if (isPdf) lastPart = lastPart.slice(0, -4);
 
         let name = lastPart
@@ -481,7 +469,6 @@ function getSourceName(url) {
         };
 
         const lowerName = name.toLowerCase();
-
         if (names[lowerName]) return names[lowerName];
         if (isPdf) return "PDF · " + name;
         return name;
