@@ -3,62 +3,74 @@ import time
 import requests
 from bs4 import BeautifulSoup
 from pypdf import PdfReader
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin
 from datetime import datetime
-from collections import deque
 
 
-BASE_URL = "https://www.tmu.ac.in"
-BASE_HOST = urlparse(BASE_URL).netloc
+# ==============================
+# CURATED WHITELIST
+# ==============================
+# Every page that matters to students. Add more if needed.
+# No crawling — just fetch each URL + its PDFs.
 
-
-START_URLS = [
+PAGES = [
+    # Root
     "https://www.tmu.ac.in/",
-    "https://www.tmu.ac.in/notice-list",
+
+    # Exams
     "https://www.tmu.ac.in/tmu/exam-overview",
+    "https://www.tmu.ac.in/tmu/exam-ordinance",
     "https://www.tmu.ac.in/tmu/cbcs-circulars",
+
+    # Notices & circulars
+    "https://www.tmu.ac.in/notice-list",
+
+    # Scholarships
     "https://www.tmu.ac.in/tmu/scholarship",
+
+    # Policies
     "https://www.tmu.ac.in/tmu/policies-sops",
+
+    # CCSIT college
     "https://www.tmu.ac.in/college-of-computing-sciences-and-it",
+    "https://www.tmu.ac.in/college-of-computing-sciences-and-it/project-templates",
+
+    # Other colleges (add more if you want them)
+    "https://www.tmu.ac.in/college-of-engineering",
+    "https://www.tmu.ac.in/college-of-management",
+    "https://www.tmu.ac.in/college-of-pharmacy",
 ]
 
 
 # ==============================
-# CRAWLER CONFIG
+# PDF FILTER (keep only useful reference docs)
 # ==============================
-
-MAX_DEPTH = 2
-MAX_PAGES = 120          # cap total pages, avoid crawling the whole site
-MAX_PDFS = 200           # HARD LIMIT on PDFs
-REQUEST_TIMEOUT = 30
-DELAY = 0.4
-
-
-# ==============================
-# PDF FILTERING — the important part
-# ==============================
-# A PDF is only kept if its URL matches one of these keywords.
 
 KEEP_KEYWORDS = [
-    # documents
-    "template", "form", "format", "syllabus", "curriculum",
-    "ordinance", "policy", "sop", "handbook", "scheme",
-    "prospectus", "brochure", "guideline", "regulation",
-    "synopsis", "internship", "project", "report",
-    "anti-ragging", "grievance", "code-of-conduct",
-    "code_of_conduct", "rules", "manual",
-    # examinations
-    "examination", "exam", "grading", "attendance",
-    "datesheet", "date-sheet", "admit", "re-evaluation",
-    "reappear",
-    # academic
-    "academic", "calendar", "fee", "scholarship",
+    "template", "synopsis", "format", "specimen",
+    "proforma", "form", "affidavit", "undertaking",
+
+    "syllabus", "curriculum", "scheme", "grading",
     "cbcs", "nep", "credit",
-    # notices / circulars (general ones, still useful)
-    "circular", "notice", "announcement",
+
+    "ordinance", "policy", "policies", "sop",
+    "regulation", "handbook", "manual", "guideline",
+    "rules", "code_of_conduct", "code-of-conduct",
+    "anti-ragging", "anti_ragging", "grievance",
+
+    "examination_rules", "exam_rules",
+    "evaluation", "re-evaluation", "reappear_rules",
+
+    "academic_calendar", "academic-calendar",
+    "prospectus", "brochure", "scheme_of_study",
+
+    "internship", "project_report", "project-report",
+    "project_guidelines", "minor_project", "major_project",
+
+    "scholarship_rules", "scholarship_guidelines",
+    "scholarship_policy",
 ]
 
-# URLs containing any of these are skipped (result sheets etc).
 SKIP_KEYWORDS = [
     "result", "merit", "rank", "selection", "waiting",
     "counseling", "counselling", "roll", "uid_", "uid-",
@@ -74,16 +86,15 @@ PDF_DIR = os.path.join(DATA_DIR, "pdfs")
 OUTPUT_FILE = os.path.join(DATA_DIR, "tmu_data.txt")
 
 MAX_PDF_SIZE_MB = 10
+REQUEST_TIMEOUT = 30
+DELAY = 0.4
 
 
 HEADERS = {
     "User-Agent": (
-        "Mozilla/5.0 "
-        "(Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 "
-        "(KHTML, like Gecko) "
-        "Chrome/153.0.0.0 "
-        "Safari/537.36"
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/153.0.0.0 Safari/537.36"
     )
 }
 
@@ -101,272 +112,157 @@ def clean_text(text):
     return "\n".join(lines)
 
 
-def is_internal_link(url):
-    try:
-        parsed = urlparse(url)
-        if parsed.scheme not in ("http", "https"):
-            return False
-        if parsed.netloc not in (BASE_HOST, "tmu.ac.in", "www.tmu.ac.in"):
-            return False
-
-        skip_ext = (
-            ".pdf", ".jpg", ".jpeg", ".png", ".gif",
-            ".svg", ".zip", ".doc", ".docx", ".xls",
-            ".xlsx", ".ppt", ".pptx", ".mp4", ".mp3",
-        )
-        if any(parsed.path.lower().endswith(ext) for ext in skip_ext):
-            return False
-
-        skip_kw = ("/login", "/admin", "/api/", "/search")
-        if any(kw in url.lower() for kw in skip_kw):
-            return False
-
-        return True
-    except Exception:
-        return False
-
-
-def normalize(url):
-    parsed = urlparse(url)
-    return f"{parsed.scheme}://{parsed.netloc}{parsed.path.rstrip('/')}"
-
-
 def should_keep_pdf(url):
-    """Decide if a PDF is likely to contain useful content."""
     u = url.lower()
-
-    # Skip if matches a skip keyword
     if any(kw in u for kw in SKIP_KEYWORDS):
         return False
+    return any(kw in u for kw in KEEP_KEYWORDS)
 
-    # Keep if matches a keep keyword
-    if any(kw in u for kw in KEEP_KEYWORDS):
-        return True
-
-    # Default: reject (keeps the base clean)
-    return False
-
-
-# ==============================
-# PDF HANDLING
-# ==============================
 
 def download_pdf(url, filename):
     os.makedirs(PDF_DIR, exist_ok=True)
     filepath = os.path.join(PDF_DIR, filename)
 
-    # Skip if already downloaded
-    if os.path.exists(filepath):
-        size = os.path.getsize(filepath)
-        if size > 1000:  # non-empty
-            print(f"  Cached: {filename}")
-            return filepath
+    if os.path.exists(filepath) and os.path.getsize(filepath) > 1000:
+        return filepath
 
     try:
-        response = requests.get(
-            url, headers=HEADERS, timeout=REQUEST_TIMEOUT, stream=True
-        )
-        response.raise_for_status()
+        r = requests.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT, stream=True)
+        r.raise_for_status()
 
-        content_length = response.headers.get("content-length")
-        if content_length:
-            size_mb = int(content_length) / (1024 * 1024)
-            if size_mb > MAX_PDF_SIZE_MB:
-                print(f"  Skipping ({size_mb:.1f} MB, too large)")
+        cl = r.headers.get("content-length")
+        if cl:
+            mb = int(cl) / (1024 * 1024)
+            if mb > MAX_PDF_SIZE_MB:
+                print(f"  Skip ({mb:.1f} MB)")
                 return None
 
-        with open(filepath, "wb") as file:
-            for chunk in response.iter_content(chunk_size=8192):
-                file.write(chunk)
+        with open(filepath, "wb") as f:
+            for chunk in r.iter_content(8192):
+                f.write(chunk)
 
         return filepath
 
-    except requests.RequestException as error:
-        print(f"  Download failed: {error}")
+    except requests.RequestException as e:
+        print(f"  Download failed: {e}")
         return None
 
 
-def extract_pdf_text(filepath):
+def extract_pdf_text(path):
     try:
-        reader = PdfReader(filepath)
+        reader = PdfReader(path)
         pages = []
-        for page in reader.pages:
-            text = page.extract_text()
-            if text:
-                pages.append(text)
+        for p in reader.pages:
+            t = p.extract_text()
+            if t:
+                pages.append(t)
         return clean_text("\n".join(pages))
-    except Exception as error:
-        print(f"  Extraction failed: {error}")
+    except Exception as e:
+        print(f"  Extract failed: {e}")
         return ""
 
 
-def safe_filename(url, index):
+def safe_filename(url, i):
     name = url.rstrip("/").split("/")[-1]
     if not name.lower().endswith(".pdf"):
-        name = f"document_{index}.pdf"
+        name = f"document_{i}.pdf"
     return name.replace("?", "_").replace("&", "_")
 
 
-# ==============================
-# PAGE SCRAPING
-# ==============================
-
 def scrape_page(url):
     try:
-        response = requests.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
-        response.raise_for_status()
-    except requests.RequestException as error:
-        print(f"  Failed: {error}")
-        return "", [], []
+        r = requests.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
+        r.raise_for_status()
+    except requests.RequestException as e:
+        print(f"  Failed: {e}")
+        return "", []
 
-    soup = BeautifulSoup(response.text, "html.parser")
+    soup = BeautifulSoup(r.text, "html.parser")
 
     pdf_links = []
-    internal_links = []
-
     for link in soup.find_all("a", href=True):
-        href = link["href"].strip() 
+        href = link["href"].strip()
         if not href or href.startswith("#") or href.startswith("javascript:"):
             continue
-
         full = urljoin(url, href).split("#")[0]
+        if full.lower().endswith(".pdf") and full not in pdf_links:
+            pdf_links.append(full)
 
-        if full.lower().endswith(".pdf"):
-            if full not in pdf_links:
-                pdf_links.append(full)
-        elif is_internal_link(full):
-            if full not in internal_links:
-                internal_links.append(full)
+    for el in soup(["script", "style", "noscript", "header", "footer", "nav"]):
+        el.decompose()
 
-    for element in soup(["script", "style", "noscript", "header", "footer", "nav"]):
-        element.decompose()
+    return clean_text(soup.get_text(separator="\n")), pdf_links
 
-    page_text = clean_text(soup.get_text(separator="\n"))
-
-    return page_text, pdf_links, internal_links
-
-
-# ==============================
-# SAVE
-# ==============================
 
 def save_data(documents):
     os.makedirs(DATA_DIR, exist_ok=True)
-
-    with open(OUTPUT_FILE, "w", encoding="utf-8") as file:
-        file.write("TMU AI ASSISTANT KNOWLEDGE BASE\n")
-        file.write(
-            "Last updated: "
-            + datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            + "\n"
-        )
-        file.write("=" * 80 + "\n\n")
-
+    with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
+        f.write("TMU AI ASSISTANT KNOWLEDGE BASE\n")
+        f.write("Last updated: " + datetime.now().strftime("%Y-%m-%d %H:%M:%S") + "\n")
+        f.write("=" * 80 + "\n\n")
         for source, text in documents:
-            file.write(f"SOURCE: {source}\n")
-            file.write("-" * 80 + "\n")
-            file.write(text)
-            file.write("\n\n")
-            file.write("=" * 80 + "\n\n")
+            f.write(f"SOURCE: {source}\n")
+            f.write("-" * 80 + "\n")
+            f.write(text)
+            f.write("\n\n")
+            f.write("=" * 80 + "\n\n")
 
 
 # ==============================
-# MAIN CRAWLER
+# MAIN
 # ==============================
 
-def crawl():
+def main():
     documents = []
-    visited = set()
-    all_pdf_links = []
-    seen_pdf_names = set()
+    all_pdfs = []
+    seen_names = set()
 
-    queue = deque()
-    for seed in START_URLS:
-        queue.append((normalize(seed), 0))
+    print("Fetching whitelisted pages...\n")
 
-    while queue and len(visited) < MAX_PAGES:
-        url, depth = queue.popleft()
+    for url in PAGES:
+        print(f"→ {url}")
+        text, pdfs = scrape_page(url)
 
-        if url in visited:
-            continue
-        visited.add(url)
+        if text:
+            documents.append((url, text))
 
-        print(f"\n[depth {depth}] {url}")
-
-        page_text, pdf_links, internal_links = scrape_page(url)
-
-        if page_text:
-            documents.append((url, page_text))
-
-        # --- collect PDFs, filtered ---
-        for pdf in pdf_links:
-            if pdf in all_pdf_links:
-                continue
-
+        for pdf in pdfs:
             if not should_keep_pdf(pdf):
                 continue
-
-            # dedupe by filename
             fname = safe_filename(pdf, 0)
-            if fname in seen_pdf_names:
+            if fname in seen_names:
                 continue
-
-            seen_pdf_names.add(fname)
-            all_pdf_links.append(pdf)
-
-            if len(all_pdf_links) >= MAX_PDFS:
-                print(f"\nReached MAX_PDFS limit ({MAX_PDFS}). Stopping collection.")
-                break
-
-        if len(all_pdf_links) >= MAX_PDFS:
-            break
-
-        if depth < MAX_DEPTH:
-            for link in internal_links:
-                link = normalize(link)
-                if link not in visited:
-                    queue.append((link, depth + 1))
+            seen_names.add(fname)
+            all_pdfs.append(pdf)
 
         time.sleep(DELAY)
 
-    print()
-    print("=" * 40)
-    print(f"Crawled {len(visited)} pages")
-    print(f"Kept {len(all_pdf_links)} useful PDFs (of all PDFs found)")
-    print("=" * 40)
+    print(f"\nFound {len(all_pdfs)} relevant PDFs")
 
-    # --- Download & extract PDFs ---
-    for index, pdf_url in enumerate(all_pdf_links, start=1):
-        print(f"\n[{index}/{len(all_pdf_links)}] {pdf_url}")
-
-        filename = safe_filename(pdf_url, index)
-        filepath = download_pdf(pdf_url, filename)
-
-        if not filepath:
+    for i, url in enumerate(all_pdfs, 1):
+        print(f"\n[{i}/{len(all_pdfs)}] {url}")
+        path = download_pdf(url, safe_filename(url, i))
+        if not path:
             continue
-
-        text = extract_pdf_text(filepath)
-
+        text = extract_pdf_text(path)
         if text:
-            documents.append((pdf_url, text))
+            documents.append((url, text))
             print("  OK")
         else:
-            print("  No text (scanned?)")
+            print("  No text")
 
     if not documents:
-        print("No information collected.")
+        print("Nothing collected.")
         return
 
     save_data(documents)
 
-    print()
-    print("=" * 40)
+    print("\n" + "=" * 40)
     print("TMU KNOWLEDGE BASE UPDATED")
     print("=" * 40)
     print(f"Documents: {len(documents)}")
-    print(f"PDFs: {len(all_pdf_links)}")
-    print(f"Saved: {OUTPUT_FILE}")
+    print(f"PDFs: {len(all_pdfs)}")
 
 
 if __name__ == "__main__":
-    crawl()
+    main()
