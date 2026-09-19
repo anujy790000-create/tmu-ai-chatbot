@@ -4,8 +4,9 @@ const body = document.body;
 // CONFIG
 // ==============================
 
-// Change this to your deployed HTTPS API later
-const API_URL = "https://tmu-smart-assistant.onrender.com/chat";
+const API_BASE = "https://tmu-smart-assistant.onrender.com";
+const API_URL = API_BASE + "/chat";
+const RESOURCES_URL = API_BASE + "/resources";
 
 // Stable per-browser session ID (enables follow-up questions)
 const SESSION_ID =
@@ -43,6 +44,25 @@ let isSending = false;
 
 
 // ==============================
+// HELPERS
+// ==============================
+
+function escapeHtml(str) {
+
+    if (str === null || str === undefined) {
+        return "";
+    }
+
+    return String(str)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+}
+
+
+// ==============================
 // THEME
 // ==============================
 
@@ -51,13 +71,10 @@ function updateThemeUI() {
     const dark = body.classList.contains("dark");
 
     if (dark) {
-
         themeIcon.textContent = "🌙";
         themeText.textContent = "Dark mode";
         mobileThemeToggle.textContent = "☀️";
-
     } else {
-
         themeIcon.textContent = "☀️";
         themeText.textContent = "Light mode";
         mobileThemeToggle.textContent = "🌙";
@@ -71,9 +88,7 @@ function toggleTheme() {
 
     localStorage.setItem(
         "tmu-theme",
-        body.classList.contains("dark")
-            ? "dark"
-            : "light"
+        body.classList.contains("dark") ? "dark" : "light"
     );
 
     updateThemeUI();
@@ -83,7 +98,6 @@ function toggleTheme() {
 if (localStorage.getItem("tmu-theme") === "dark") {
     body.classList.add("dark");
 }
-
 
 updateThemeUI();
 
@@ -95,33 +109,22 @@ mobileThemeToggle.addEventListener("click", toggleTheme);
 // SIDEBAR
 // ==============================
 
-mobileMenu.addEventListener(
-    "click",
-    () => {
+mobileMenu.addEventListener("click", () => {
+    sidebar.classList.toggle("open");
+});
 
-        sidebar.classList.toggle("open");
 
+document.addEventListener("click", (event) => {
+
+    if (
+        window.innerWidth <= 700 &&
+        sidebar.classList.contains("open") &&
+        !sidebar.contains(event.target) &&
+        !mobileMenu.contains(event.target)
+    ) {
+        sidebar.classList.remove("open");
     }
-);
-
-
-document.addEventListener(
-    "click",
-    (event) => {
-
-        if (
-            window.innerWidth <= 700 &&
-            sidebar.classList.contains("open") &&
-            !sidebar.contains(event.target) &&
-            !mobileMenu.contains(event.target)
-        ) {
-
-            sidebar.classList.remove("open");
-
-        }
-
-    }
-);
+});
 
 
 // ==============================
@@ -132,31 +135,23 @@ async function sendMessage() {
 
     const text = messageInput.value.trim();
 
-
     if (!text || isSending) {
         return;
     }
-
 
     isSending = true;
 
     sendBtn.disabled = true;
     sendBtn.style.opacity = "0.5";
 
-
     welcome.style.display = "none";
-
 
     addMessage(text, "user");
 
-
     messageInput.value = "";
-
     autoResize();
 
-
     const loadingMessage = addLoadingMessage();
-
 
     try {
 
@@ -164,11 +159,7 @@ async function sendMessage() {
             API_URL,
             {
                 method: "POST",
-
-                headers: {
-                    "Content-Type": "application/json"
-                },
-
+                headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     message: text,
                     session_id: SESSION_ID
@@ -176,58 +167,33 @@ async function sendMessage() {
             }
         );
 
-
         if (!response.ok) {
-
-            throw new Error(
-                `Server returned ${response.status}`
-            );
-
+            throw new Error(`Server returned ${response.status}`);
         }
-
 
         const data = await response.json();
 
-
         loadingMessage.remove();
 
-
         if (data.answer) {
-
-            addMessage(
-                data.answer,
-                "bot",
-                data.sources || []
-            );
-
+            addMessage(data.answer, "bot", data.sources || []);
         } else {
-
-            addMessage(
-                "Sorry, I couldn't generate an answer.",
-                "bot"
-            );
-
+            addMessage("Sorry, I couldn't generate an answer.", "bot");
         }
-
 
     } catch (error) {
 
         console.error("Chat error:", error);
 
-
         loadingMessage.remove();
-
 
         addMessage(
             "Sorry, I couldn't connect to the TMU assistant server. Please make sure the FastAPI server is running.",
             "bot"
         );
-
     }
 
-
     isSending = false;
-
     sendBtn.disabled = false;
     sendBtn.style.opacity = "1";
 
@@ -239,56 +205,32 @@ async function sendMessage() {
 // ADD MESSAGE
 // ==============================
 
-function addMessage(
-    text,
-    sender,
-    sources = []
-) {
+function addMessage(text, sender, sources = []) {
 
     const message = document.createElement("div");
-
     message.className = `message ${sender}`;
 
-
     const avatar = document.createElement("div");
-
     avatar.className = "avatar";
-
-    avatar.textContent =
-        sender === "user" ? "You" : "T";
-
+    avatar.textContent = sender === "user" ? "You" : "T";
 
     const content = document.createElement("div");
-
     content.className = "message-content";
-
-    // Safe text rendering
     content.textContent = text;
-
 
     message.appendChild(avatar);
     message.appendChild(content);
 
-
-    // ==============================
-    // OFFICIAL SOURCES
-    // ==============================
-    // Now attached INSIDE message-content
-    // so they appear below the text.
-
+    // Sources go INSIDE content so they stack below the text
     if (
         sender === "bot" &&
         Array.isArray(sources) &&
         sources.length > 0
     ) {
-
         addSources(content, sources);
-
     }
 
-
     messages.appendChild(message);
-
     scrollToBottom();
 
     return message;
@@ -302,21 +244,14 @@ function addMessage(
 function addSources(parent, sources) {
 
     const sourceBox = document.createElement("div");
-
     sourceBox.className = "source-box";
 
-
     const sourceLabel = document.createElement("div");
-
     sourceLabel.className = "source-label";
-
     sourceLabel.textContent = "Official TMU Sources";
-
     sourceBox.appendChild(sourceLabel);
 
-
     let displayIndex = 0;
-
 
     sources.forEach((source) => {
 
@@ -324,42 +259,35 @@ function addSources(parent, sources) {
             return;
         }
 
-
         displayIndex += 1;
 
+        const isPdf = source.toLowerCase().includes(".pdf");
 
         const sourceItem = document.createElement("div");
-
         sourceItem.className = "source-item";
 
-
         const sourceNumber = document.createElement("span");
-
         sourceNumber.className = "source-number";
-
         sourceNumber.textContent = `${displayIndex}.`;
 
+        const sourceIcon = document.createElement("span");
+        sourceIcon.className = "source-icon";
+        sourceIcon.textContent = isPdf ? "📎" : "🔗";
 
         const sourceLink = document.createElement("a");
-
         sourceLink.className = "source-link";
-
         sourceLink.href = source;
         sourceLink.target = "_blank";
         sourceLink.rel = "noopener noreferrer";
-
         sourceLink.textContent = getSourceName(source);
 
-
         sourceItem.appendChild(sourceNumber);
+        sourceItem.appendChild(sourceIcon);
         sourceItem.appendChild(sourceLink);
 
         sourceBox.appendChild(sourceItem);
-
     });
 
-
-    // Only attach if at least one valid source
     if (displayIndex > 0) {
         parent.appendChild(sourceBox);
     }
@@ -376,7 +304,6 @@ function isValidTMUSource(url) {
 
         const parsed = new URL(url);
 
-
         return (
             parsed.protocol === "https:" &&
             (
@@ -386,9 +313,7 @@ function isValidTMUSource(url) {
         );
 
     } catch {
-
         return false;
-
     }
 }
 
@@ -402,66 +327,54 @@ function getSourceName(url) {
     try {
 
         const parsed = new URL(url);
-
-
-        const path = parsed.pathname
-            .replace(/^\/|\/$/g, "");
-
+        const path = parsed.pathname.replace(/^\/|\/$/g, "");
 
         if (!path) {
             return "TMU Official Website";
         }
 
-
         const parts = path.split("/");
+        let lastPart = parts[parts.length - 1];
 
-        const lastPart = parts[parts.length - 1];
+        const isPdf = lastPart.toLowerCase().endsWith(".pdf");
 
+        if (isPdf) {
+            lastPart = lastPart.slice(0, -4);
+        }
 
-        const name = lastPart
-            .replace(/[-_]/g, " ")
-            .replace(/\b\w/g, letter =>
-                letter.toUpperCase()
-            );
+        let name = lastPart
+            .replace(/[-_]+/g, " ")
+            .replace(/\s+/g, " ")
+            .trim()
+            .replace(/\b\w/g, l => l.toUpperCase());
 
+        if (!name) {
+            name = isPdf ? "TMU PDF Document" : "TMU Page";
+        }
 
-        // Better names for common TMU pages
         const names = {
-
-            "exam overview":
-                "TMU Examination Overview",
-
-            "exam ordinance":
-                "TMU Examination Ordinance",
-
-            "cbcs circulars":
-                "TMU CBCS Circulars",
-
-            "notice list":
-                "TMU Notice Board",
-
-            "scholarship":
-                "TMU Scholarships",
-
-            "policies sops":
-                "TMU Policies & SOPs"
+            "exam overview": "TMU Examination Overview",
+            "exam ordinance": "TMU Examination Ordinance",
+            "cbcs circulars": "TMU CBCS Circulars",
+            "notice list": "TMU Notice Board",
+            "scholarship": "TMU Scholarships",
+            "policies sops": "TMU Policies & SOPs"
         };
 
-
         const lowerName = name.toLowerCase();
-
 
         if (names[lowerName]) {
             return names[lowerName];
         }
 
+        if (isPdf) {
+            return "PDF · " + name;
+        }
 
         return name;
 
     } catch {
-
         return "TMU Official Website";
-
     }
 }
 
@@ -473,30 +386,20 @@ function getSourceName(url) {
 function addLoadingMessage() {
 
     const message = document.createElement("div");
-
     message.className = "message bot";
 
-
     const avatar = document.createElement("div");
-
     avatar.className = "avatar";
-
     avatar.textContent = "T";
 
-
     const content = document.createElement("div");
-
     content.className = "message-content";
-
     content.textContent = "Thinking...";
-
 
     message.appendChild(avatar);
     message.appendChild(content);
 
-
     messages.appendChild(message);
-
     scrollToBottom();
 
     return message;
@@ -522,12 +425,8 @@ function scrollToBottom() {
 function autoResize() {
 
     messageInput.style.height = "auto";
-
     messageInput.style.height =
-        Math.min(
-            messageInput.scrollHeight,
-            150
-        ) + "px";
+        Math.min(messageInput.scrollHeight, 150) + "px";
 }
 
 
@@ -538,23 +437,13 @@ messageInput.addEventListener("input", autoResize);
 // ENTER TO SEND
 // ==============================
 
-messageInput.addEventListener(
-    "keydown",
-    (event) => {
+messageInput.addEventListener("keydown", (event) => {
 
-        if (
-            event.key === "Enter" &&
-            !event.shiftKey
-        ) {
-
-            event.preventDefault();
-
-            sendMessage();
-
-        }
-
+    if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        sendMessage();
     }
-);
+});
 
 
 sendBtn.addEventListener("click", sendMessage);
@@ -566,61 +455,43 @@ sendBtn.addEventListener("click", sendMessage);
 
 document
     .querySelectorAll("[data-question]")
-    .forEach(
-        (button) => {
+    .forEach((button) => {
 
-            button.addEventListener(
-                "click",
-                () => {
+        button.addEventListener("click", () => {
 
-                    const question = button.dataset.question;
+            const question = button.dataset.question;
 
+            messageInput.value = question;
+            autoResize();
+            sendMessage();
 
-                    messageInput.value = question;
-
-                    autoResize();
-
-                    sendMessage();
-
-
-                    sidebar.classList.remove("open");
-
-                }
-            );
-
-        }
-    );
+            sidebar.classList.remove("open");
+        });
+    });
 
 
 // ==============================
 // NEW CHAT
 // ==============================
 
-newChatBtn.addEventListener(
-    "click",
-    () => {
+newChatBtn.addEventListener("click", () => {
 
-        messages.innerHTML = "";
+    messages.innerHTML = "";
+    welcome.style.display = "block";
+    messageInput.value = "";
 
-        welcome.style.display = "block";
+    autoResize();
+    messageInput.focus();
 
-        messageInput.value = "";
-
-        autoResize();
-
-        messageInput.focus();
-
-        sidebar.classList.remove("open");
-
-    }
-);
+    sidebar.classList.remove("open");
+});
 
 
 autoResize();
 
 
 // ==============================
-// RESOURCES + ABOUT
+// RESOURCES + ABOUT (modal wrapper)
 // ==============================
 
 function createInfoModal(title, content) {
@@ -631,180 +502,179 @@ function createInfoModal(title, content) {
         existing.remove();
     }
 
-
     const overlay = document.createElement("div");
-
     overlay.id = "infoModal";
-
     overlay.className = "info-modal-overlay";
 
-
     const modal = document.createElement("div");
-
     modal.className = "info-modal";
 
-
     const header = document.createElement("div");
-
     header.className = "info-modal-header";
 
-
     const heading = document.createElement("h2");
-
     heading.textContent = title;
 
-
     const close = document.createElement("button");
-
     close.className = "info-modal-close";
-
     close.textContent = "×";
-
     close.setAttribute("aria-label", "Close");
 
-
-    close.addEventListener(
-        "click",
-        () => overlay.remove()
-    );
-
+    close.addEventListener("click", () => overlay.remove());
 
     header.appendChild(heading);
     header.appendChild(close);
 
-
     const body = document.createElement("div");
-
     body.className = "info-modal-body";
-
     body.innerHTML = content;
-
 
     modal.appendChild(header);
     modal.appendChild(body);
-
-
     overlay.appendChild(modal);
 
-
-    overlay.addEventListener(
-        "click",
-        (event) => {
-
-            if (event.target === overlay) {
-                overlay.remove();
-            }
-
+    overlay.addEventListener("click", (event) => {
+        if (event.target === overlay) {
+            overlay.remove();
         }
-    );
-
+    });
 
     document.body.appendChild(overlay);
+
+    return overlay;
+}
+
+
+function getModalBody() {
+    return document.querySelector("#infoModal .info-modal-body");
 }
 
 
 // ==============================
-// RESOURCES
+// RESOURCES (dynamic — loads all PDFs from /resources)
 // ==============================
 
-function openResources() {
+async function openResources() {
 
     createInfoModal(
         "TMU Resources",
-
         `
-        <p class="modal-description">
-            Useful official TMU resources for students.
-        </p>
-
-        <div class="resource-grid">
-
-            <a
-                href="https://www.tmu.ac.in/tmu/exam-overview"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="resource-card"
-            >
-                <span class="resource-icon">📝</span>
-                <span>
-                    <strong>Examination Overview</strong>
-                    <small>Exam rules and attendance requirements</small>
-                </span>
-            </a>
-
-
-            <a
-                href="https://www.tmu.ac.in/tmu/exam-ordinance"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="resource-card"
-            >
-                <span class="resource-icon">📋</span>
-                <span>
-                    <strong>Examination Ordinance</strong>
-                    <small>Official examination ordinances</small>
-                </span>
-            </a>
-
-
-            <a
-                href="https://www.tmu.ac.in/tmu/cbcs-circulars"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="resource-card"
-            >
-                <span class="resource-icon">📢</span>
-                <span>
-                    <strong>CBCS Circulars</strong>
-                    <small>University circulars and updates</small>
-                </span>
-            </a>
-
-
-            <a
-                href="https://www.tmu.ac.in/notice-list"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="resource-card"
-            >
-                <span class="resource-icon">🔔</span>
-                <span>
-                    <strong>Notice Board</strong>
-                    <small>Latest official university notices</small>
-                </span>
-            </a>
-
-
-            <a
-                href="https://www.tmu.ac.in/tmu/scholarship"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="resource-card"
-            >
-                <span class="resource-icon">🎓</span>
-                <span>
-                    <strong>Scholarships</strong>
-                    <small>Scholarship opportunities and guidelines</small>
-                </span>
-            </a>
-
-
-            <a
-                href="https://www.tmu.ac.in/tmu/policies-sops"
-                target="_blank"
-                rel="noopener noreferrer"
-                class="resource-card"
-            >
-                <span class="resource-icon">📚</span>
-                <span>
-                    <strong>Policies &amp; SOPs</strong>
-                    <small>Official university policies and procedures</small>
-                </span>
-            </a>
-
-        </div>
+        <p class="modal-description">Loading official resources…</p>
+        <div class="loading-spinner"></div>
         `
     );
+
+    try {
+
+        const resp = await fetch(RESOURCES_URL);
+
+        if (!resp.ok) {
+            throw new Error(`Server returned ${resp.status}`);
+        }
+
+        const data = await resp.json();
+
+        const modalBody = getModalBody();
+
+        if (!modalBody) {
+            return;
+        }
+
+        let html = `
+            <p class="modal-description">
+                Official TMU pages and downloadable documents
+                (${data.total_pdfs || 0} PDFs found).
+            </p>
+        `;
+
+        // ---- Official pages ----
+        if (data.pages && data.pages.length > 0) {
+
+            html += `
+                <div class="resource-section">
+                    <h4>Official Pages</h4>
+                    <div class="resource-grid">
+            `;
+
+            data.pages.forEach((p) => {
+                html += `
+                    <a href="${escapeHtml(p.url)}"
+                       target="_blank"
+                       rel="noopener noreferrer"
+                       class="resource-card">
+                        <span class="resource-icon">🔗</span>
+                        <span>
+                            <strong>${escapeHtml(p.name)}</strong>
+                            <small>${escapeHtml(p.url)}</small>
+                        </span>
+                    </a>
+                `;
+            });
+
+            html += `</div></div>`;
+        }
+
+        // ---- Downloadable PDFs ----
+        if (data.pdf_groups && data.pdf_groups.length > 0) {
+
+            html += `
+                <div class="resource-section">
+                    <h4>Downloadable Documents</h4>
+            `;
+
+            data.pdf_groups.forEach((g) => {
+
+                html += `
+                    <div class="pdf-group">
+                        <div class="pdf-group-title">
+                            ${escapeHtml(g.category)}
+                            <span class="pdf-count">${g.items.length}</span>
+                        </div>
+                        <div class="pdf-list">
+                `;
+
+                g.items.forEach((item) => {
+                    html += `
+                        <a href="${escapeHtml(item.url)}"
+                           target="_blank"
+                           rel="noopener noreferrer"
+                           class="pdf-item">
+                            <span class="pdf-icon">📎</span>
+                            <span class="pdf-name">${escapeHtml(item.name)}</span>
+                        </a>
+                    `;
+                });
+
+                html += `</div></div>`;
+            });
+
+            html += `</div>`;
+        }
+
+        if (
+            (!data.pages || data.pages.length === 0) &&
+            (!data.pdf_groups || data.pdf_groups.length === 0)
+        ) {
+            html += `<p class="modal-description">No resources available yet.</p>`;
+        }
+
+        modalBody.innerHTML = html;
+
+    } catch (error) {
+
+        console.error("Resources error:", error);
+
+        const modalBody = getModalBody();
+
+        if (modalBody) {
+            modalBody.innerHTML = `
+                <p class="modal-description">
+                    Unable to load resources right now.
+                    Please try again in a moment.
+                </p>
+            `;
+        }
+    }
 }
 
 
@@ -820,9 +690,7 @@ function openAbout() {
         `
         <div class="about-content">
 
-            <div class="about-logo">
-                🤖
-            </div>
+            <div class="about-logo">🤖</div>
 
             <h3>TMU AI Student Assistant</h3>
 
@@ -833,49 +701,35 @@ function openAbout() {
             </p>
 
             <div class="about-section">
-
                 <strong>How it works</strong>
-
                 <p>
                     The assistant searches official TMU
                     webpages and documents, retrieves relevant
                     information, and uses AI to provide a
                     concise answer.
                 </p>
-
             </div>
 
-
             <div class="about-section">
-
                 <strong>Information sources</strong>
-
                 <p>
                     Information is retrieved from official
                     TMU webpages, notices, circulars,
                     policies, SOPs and other public documents.
                 </p>
-
             </div>
 
-
             <div class="about-section">
-
                 <strong>Privacy</strong>
-
                 <p>
                     This assistant does not access private
                     student ERP information such as personal
                     attendance, marks, results or fee records.
                 </p>
-
             </div>
 
-
             <div class="about-section">
-
                 <strong>Project Team</strong>
-
                 <div class="team-grid">
 
                     <div class="team-member">
@@ -911,27 +765,17 @@ function openAbout() {
                     </div>
 
                 </div>
-
             </div>
-
 
             <div class="about-section">
-
                 <strong>Project Instructor</strong>
-
-                <p>
-                    Ms. Anvesha Sisodiya
-                </p>
-
+                <p>Ms. Anvesha Sisodiya</p>
             </div>
 
-
             <div class="about-warning">
-
                 Always verify important or time-sensitive
                 information using the official TMU source
                 provided with the answer.
-
             </div>
 
         </div>
@@ -950,49 +794,27 @@ function setupInfoButtons() {
         "a, button, .nav-item, .sidebar-item, .side-item"
     );
 
-
     sidebarItems.forEach((item) => {
 
-        const text = item.textContent
-            .trim()
-            .toLowerCase();
-
+        const text = item.textContent.trim().toLowerCase();
 
         if (text.includes("resources")) {
 
-            item.addEventListener(
-                "click",
-                (event) => {
-
-                    event.preventDefault();
-
-                    openResources();
-
-                    sidebar.classList.remove("open");
-
-                }
-            );
-
+            item.addEventListener("click", (event) => {
+                event.preventDefault();
+                openResources();
+                sidebar.classList.remove("open");
+            });
         }
-
 
         if (text.includes("about")) {
 
-            item.addEventListener(
-                "click",
-                (event) => {
-
-                    event.preventDefault();
-
-                    openAbout();
-
-                    sidebar.classList.remove("open");
-
-                }
-            );
-
+            item.addEventListener("click", (event) => {
+                event.preventDefault();
+                openAbout();
+                sidebar.classList.remove("open");
+            });
         }
-
     });
 }
 
@@ -1004,19 +826,14 @@ setupInfoButtons();
 // ESCAPE CLOSES MODAL
 // ==============================
 
-document.addEventListener(
-    "keydown",
-    (event) => {
+document.addEventListener("keydown", (event) => {
 
-        if (event.key === "Escape") {
+    if (event.key === "Escape") {
 
-            const modal = document.getElementById("infoModal");
+        const modal = document.getElementById("infoModal");
 
-            if (modal) {
-                modal.remove();
-            }
-
+        if (modal) {
+            modal.remove();
         }
-
     }
-);
+});

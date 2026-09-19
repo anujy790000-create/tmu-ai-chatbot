@@ -64,6 +64,13 @@ TOPIC_KEYWORDS = {
     "erp": [
         "erp", "student portal", "student login",
         "uid", "id card"
+    ],
+
+    "documents": [
+        "template", "form", "format", "download",
+        "pdf", "document", "documents", "file",
+        "certificate", "letter", "application form",
+        "sample", "specimen", "affidavit", "undertaking"
     ]
 }
 
@@ -107,6 +114,13 @@ SOURCE_PRIORITY = {
     ]
 }
 
+
+DOCUMENT_KEYWORDS = TOPIC_KEYWORDS["documents"]
+
+
+# ==============================
+# LOAD & CHUNK
+# ==============================
 
 def load_knowledge_base():
 
@@ -226,6 +240,16 @@ def detect_topics(query):
     return detected
 
 
+def is_document_query(query):
+
+    query_lower = query.lower()
+
+    return any(
+        kw in query_lower
+        for kw in DOCUMENT_KEYWORDS
+    )
+
+
 def get_source(section):
 
     if "SOURCE:" not in section:
@@ -249,6 +273,7 @@ def score_chunk(chunk, query):
 
     score = 0
 
+    # Keyword matches
     for word in query_words:
 
         count = chunk_lower.count(word)
@@ -256,6 +281,7 @@ def score_chunk(chunk, query):
         if count > 0:
             score += min(count, 3) * 2
 
+    # Topic keywords
     for topic in topics:
 
         for keyword in TOPIC_KEYWORDS[topic]:
@@ -263,6 +289,7 @@ def score_chunk(chunk, query):
             if keyword in chunk_lower:
                 score += 4
 
+    # Source priority
     source = get_source(chunk).lower()
 
     for topic in topics:
@@ -272,6 +299,13 @@ def score_chunk(chunk, query):
             if priority in source:
                 score += 15
 
+    # Document-query PDF boost
+    if is_document_query(query):
+
+        if ".pdf" in source:
+            score += 12
+
+    # Exact phrase bonus
     query_lower = query.lower()
 
     for topic in topics:
