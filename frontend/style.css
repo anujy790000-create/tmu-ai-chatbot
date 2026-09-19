@@ -30,6 +30,22 @@ body.dark {
     --shadow: 0 4px 25px rgba(0, 0, 0, 0.3);
 }
 
+/* ==============================
+   VIEWPORT FIX
+   - use 100dvh (dynamic viewport) so the URL bar
+     on mobile doesn't cut off the top or the input
+   - prevent body scroll/bounce on iOS
+   ============================== */
+
+html,
+body {
+    height: 100%;
+    height: 100dvh;
+    margin: 0;
+    overflow: hidden;
+    overscroll-behavior: none;
+}
+
 body {
     font-family:
         Inter,
@@ -42,12 +58,14 @@ body {
     background: var(--bg);
     color: var(--text);
 
-    height: 100vh;
-    overflow: hidden;
-
     transition:
         background 0.25s ease,
         color 0.25s ease;
+
+    /* keep body pinned so mobile keyboard doesn't scroll it */
+    position: fixed;
+    inset: 0;
+    width: 100%;
 }
 
 button,
@@ -60,10 +78,13 @@ button {
     cursor: pointer;
 }
 
+/* APP */
+
 .app {
     display: flex;
     width: 100%;
-    height: 100vh;
+    height: 100%;
+    overflow: hidden;
 }
 
 /* SIDEBAR */
@@ -71,13 +92,14 @@ button {
 .sidebar {
     width: 260px;
     min-width: 260px;
-    height: 100vh;
+    height: 100%;
     background: var(--sidebar);
     border-right: 1px solid var(--border);
     display: flex;
     flex-direction: column;
     padding: 14px;
     transition: background 0.25s ease, transform 0.25s ease;
+    overflow-y: auto;
 }
 
 .sidebar-top {
@@ -164,21 +186,30 @@ button {
     margin-top: auto;
 }
 
+/* MAIN */
+
 .main {
     flex: 1;
     min-width: 0;
     display: flex;
     flex-direction: column;
     background: var(--bg);
+    height: 100%;
+    overflow: hidden;
 }
 
+/* HEADER */
+
 .header {
-    height: 58px;
     display: flex;
     align-items: center;
     padding: 0 20px;
     border-bottom: 1px solid var(--border);
     flex-shrink: 0;
+
+    /* height + safe-area top (notch) */
+    height: calc(58px + env(safe-area-inset-top, 0px));
+    padding-top: env(safe-area-inset-top, 0px);
 }
 
 .header-title {
@@ -213,7 +244,11 @@ button {
 .chat-area {
     flex: 1;
     overflow-y: auto;
+    overflow-x: hidden;
     scroll-behavior: smooth;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+    min-height: 0;
 }
 
 .welcome {
@@ -242,6 +277,8 @@ button {
     font-size: 15px;
     margin-bottom: 32px;
 }
+
+/* SUGGESTIONS */
 
 .suggestions {
     display: grid;
@@ -284,6 +321,8 @@ button {
     color: var(--muted);
     font-size: 12px;
 }
+
+/* MESSAGES */
 
 .messages {
     max-width: 850px;
@@ -342,9 +381,16 @@ button {
     border-radius: 16px;
 }
 
+/* INPUT */
+
 .input-wrapper {
     width: 100%;
     padding: 12px 25px 18px;
+    flex-shrink: 0;
+    background: var(--bg);
+
+    /* safe-area bottom (home indicator on iPhone) */
+    padding-bottom: calc(18px + env(safe-area-inset-bottom, 0px));
 }
 
 .input-box {
@@ -402,6 +448,8 @@ textarea::placeholder {
     font-size: 11px;
 }
 
+/* THEME */
+
 .theme-toggle {
     width: 100%;
     height: 42px;
@@ -421,7 +469,7 @@ textarea::placeholder {
     background: var(--sidebar-hover);
 }
 
-/* MOBILE */
+/* MOBILE — main breakpoint */
 
 @media (max-width: 700px) {
 
@@ -432,6 +480,9 @@ textarea::placeholder {
         z-index: 100;
         transform: translateX(-100%);
         box-shadow: var(--shadow);
+        height: 100%;
+        padding-top: calc(14px + env(safe-area-inset-top, 0px));
+        padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px));
     }
 
     .sidebar.open {
@@ -448,15 +499,21 @@ textarea::placeholder {
         justify-content: space-between;
     }
 
-    .welcome { padding: 50px 18px 25px; }
-    .welcome h1 { font-size: 27px; }
+    .welcome { padding: 40px 18px 20px; }
+    .welcome h1 { font-size: 26px; }
     .welcome p { font-size: 14px; }
 
-    .suggestions { grid-template-columns: 1fr; }
+    .suggestions { grid-template-columns: 1fr; gap: 10px; }
     .messages { padding: 20px 15px; }
     .message-content { max-width: 82%; }
-    .input-wrapper { padding: 8px 12px 13px; }
+    .input-wrapper { padding: 8px 12px 13px; padding-bottom: calc(13px + env(safe-area-inset-bottom, 0px)); }
     .input-footer { display: none; }
+
+    /* header stays visible even when keyboard opens */
+    .header {
+        position: relative;
+        z-index: 10;
+    }
 }
 
 /* OFFICIAL SOURCES (chat) */
@@ -511,6 +568,34 @@ textarea::placeholder {
 
 body:not(.dark) .source-link {
     color: #1769aa;
+}
+
+/* COPY BUTTON */
+
+.copy-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin-top: 10px;
+    padding: 5px 10px;
+    font-size: 12px;
+    font-weight: 500;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid var(--border);
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.copy-btn:hover {
+    background: var(--sidebar-hover);
+    color: var(--text);
+}
+
+.copy-btn.copied {
+    color: #22c55e;
+    border-color: #22c55e;
 }
 
 /* INFO MODALS */
@@ -715,9 +800,7 @@ body:not(.dark) .source-link {
 
 /* About */
 
-.about-content {
-    text-align: center;
-}
+.about-content { text-align: center; }
 
 .about-logo {
     width: 60px;
@@ -826,20 +909,13 @@ body:not(.dark) .source-link {
 
 @media (max-width: 600px) {
 
-    .info-modal-overlay {
-        padding: 12px;
-    }
+    .info-modal-overlay { padding: 12px; }
 
     .info-modal {
         max-height: 90vh;
         border-radius: 15px;
     }
 
-    .resource-grid {
-        grid-template-columns: 1fr;
-    }
-
-    .team-grid {
-        grid-template-columns: 1fr;
-    }
+    .resource-grid { grid-template-columns: 1fr; }
+    .team-grid { grid-template-columns: 1fr; }
 }

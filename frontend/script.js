@@ -8,7 +8,7 @@ const API_BASE = "https://tmu-smart-assistant.onrender.com";
 const API_URL = API_BASE + "/chat";
 const RESOURCES_URL = API_BASE + "/resources";
 
-// Stable per-browser session ID (enables follow-up questions)
+// Stable per-browser session ID
 const SESSION_ID =
     localStorage.getItem("tmu-session") ||
     (() => {
@@ -16,6 +16,9 @@ const SESSION_ID =
         localStorage.setItem("tmu-session", id);
         return id;
     })();
+
+// Where we persist the chat
+const CHAT_STORAGE_KEY = "tmu-chat-history";
 
 
 // ==============================
@@ -41,6 +44,7 @@ const mobileMenu = document.getElementById("mobileMenu");
 const newChatBtn = document.getElementById("newChatBtn");
 
 let isSending = false;
+let isRestoring = false;
 
 
 // ==============================
@@ -48,11 +52,7 @@ let isSending = false;
 // ==============================
 
 function escapeHtml(str) {
-
-    if (str === null || str === undefined) {
-        return "";
-    }
-
+    if (str === null || str === undefined) return "";
     return String(str)
         .replace(/&/g, "&amp;")
         .replace(/</g, "&lt;")
@@ -67,9 +67,7 @@ function escapeHtml(str) {
 // ==============================
 
 function updateThemeUI() {
-
     const dark = body.classList.contains("dark");
-
     if (dark) {
         themeIcon.textContent = "🌙";
         themeText.textContent = "Dark mode";
@@ -81,19 +79,14 @@ function updateThemeUI() {
     }
 }
 
-
 function toggleTheme() {
-
     body.classList.toggle("dark");
-
     localStorage.setItem(
         "tmu-theme",
         body.classList.contains("dark") ? "dark" : "light"
     );
-
     updateThemeUI();
 }
-
 
 if (localStorage.getItem("tmu-theme") === "dark") {
     body.classList.add("dark");
@@ -113,9 +106,7 @@ mobileMenu.addEventListener("click", () => {
     sidebar.classList.toggle("open");
 });
 
-
 document.addEventListener("click", (event) => {
-
     if (
         window.innerWidth <= 700 &&
         sidebar.classList.contains("open") &&
@@ -128,19 +119,84 @@ document.addEventListener("click", (event) => {
 
 
 // ==============================
+// CHAT PERSISTENCE
+// ==============================
+
+function saveChat() {
+    const items = [];
+    messages.querySelectorAll(".message").forEach(m => {
+        const sender = m.classList.contains("user") ? "user" : "bot";
+        const content = m.querySelector(".message-content");
+        if (!content) return;
+
+        const sourceBox = content.querySelector(".source-box");
+        const copyBtn = content.querySelector(".copy-btn");
+
+        // Extract text only (exclude source box + copy button)
+        let text = "";
+        const textNodes = Array.from(content.childNodes).filter(n => {
+            return n.nodeType === Node.TEXT_NODE;
+        });
+        text = textNodes.map(n => n.textContent).join("").trim();
+
+        // Sources (from links)
+        const sources = [];
+        if (sourceBox) {
+            sourceBox.querySelectorAll(".source-link").forEach(a => {
+                sources.push(a.href);
+            });
+        }
+
+        if (text) items.push({ text, sender, sources });
+    });
+
+    try {
+        localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(items));
+    } catch (e) {
+        console.warn("Could not save chat", e);
+    }
+}
+
+function loadChat() {
+    try {
+        const raw = localStorage.getItem(CHAT_STORAGE_KEY);
+        if (!raw) return;
+
+        const items = JSON.parse(raw);
+        if (!Array.isArray(items) || items.length === 0) return;
+
+        isRestoring = true;
+        welcome.style.display = "none";
+
+        items.forEach(item => {
+            addMessage(item.text, item.sender, item.sources || []);
+        });
+
+        isRestoring = false;
+    } catch (e) {
+        console.warn("Could not load chat", e);
+    }
+}
+
+function clearChat() {
+    try {
+        localStorage.removeItem(CHAT_STORAGE_KEY);
+    } catch (e) {}
+    messages.innerHTML = "";
+    welcome.style.display = "block";
+}
+
+
+// ==============================
 // SEND MESSAGE
 // ==============================
 
 async function sendMessage() {
-
     const text = messageInput.value.trim();
 
-    if (!text || isSending) {
-        return;
-    }
+    if (!text || isSending) return;
 
     isSending = true;
-
     sendBtn.disabled = true;
     sendBtn.style.opacity = "0.5";
 
@@ -153,8 +209,15 @@ async function sendMessage() {
 
     const loadingMessage = addLoadingMessage();
 
-    try {
+    // --- Cold start hint ---
+    let wakingTimer = setTimeout(() => {
+        setLoadingText(
+            loadingMessage,
+            "Server is waking up… this may take up to 30 seconds."
+        );
+    }, 3000);
 
+    try {
         const response = await fetch(
             API_URL,
             {
@@ -166,6 +229,8 @@ async function sendMessage() {
                 })
             }
         );
+
+        clearTimeout(wakingTimer);
 
         if (!response.ok) {
             throw new Error(`Server returned ${response.status}`);
@@ -182,7 +247,7 @@ async function sendMessage() {
         }
 
     } catch (error) {
-
+        clearTimeout(wakingTimer);
         console.error("Chat error:", error);
 
         loadingMessage.remove();
@@ -206,7 +271,6 @@ async function sendMessage() {
 // ==============================
 
 function addMessage(text, sender, sources = []) {
-
     const message = document.createElement("div");
     message.className = `message ${sender}`;
 
@@ -216,12 +280,15 @@ function addMessage(text, sender, sources = []) {
 
     const content = document.createElement("div");
     content.className = "message-content";
-    content.textContent = text;
+
+    // Main text node
+    const textNode = document.createTextNode(text);
+    content.appendChild(textNode);
 
     message.appendChild(avatar);
     message.appendChild(content);
 
-    // Sources go INSIDE content so they stack below the text
+    // Sources
     if (
         sender === "bot" &&
         Array.isArray(sources) &&
@@ -230,10 +297,51 @@ function addMessage(text, sender, sources = []) {
         addSources(content, sources);
     }
 
+    // Copy button on bot messages
+    if (sender === "bot") {
+        addCopyButton(content, text);
+    }
+
     messages.appendChild(message);
     scrollToBottom();
 
+    if (!isRestoring) saveChat();
+
     return message;
+}
+
+
+// ==============================
+// COPY BUTTON
+// ==============================
+
+function addCopyButton(parent, text) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "copy-btn";
+    btn.title = "Copy answer";
+    btn.setAttribute("aria-label", "Copy answer");
+    btn.textContent = "📋 Copy";
+
+    btn.addEventListener("click", async () => {
+        try {
+            await navigator.clipboard.writeText(text);
+            btn.textContent = "✓ Copied";
+            btn.classList.add("copied");
+            setTimeout(() => {
+                btn.textContent = "📋 Copy";
+                btn.classList.remove("copied");
+            }, 1600);
+        } catch (e) {
+            console.error("Copy failed", e);
+            btn.textContent = "⚠ Failed";
+            setTimeout(() => {
+                btn.textContent = "📋 Copy";
+            }, 1600);
+        }
+    });
+
+    parent.appendChild(btn);
 }
 
 
@@ -242,7 +350,6 @@ function addMessage(text, sender, sources = []) {
 // ==============================
 
 function addSources(parent, sources) {
-
     const sourceBox = document.createElement("div");
     sourceBox.className = "source-box";
 
@@ -254,10 +361,7 @@ function addSources(parent, sources) {
     let displayIndex = 0;
 
     sources.forEach((source) => {
-
-        if (!isValidTMUSource(source)) {
-            return;
-        }
+        if (!isValidTMUSource(source)) return;
 
         displayIndex += 1;
 
@@ -288,9 +392,7 @@ function addSources(parent, sources) {
         sourceBox.appendChild(sourceItem);
     });
 
-    if (displayIndex > 0) {
-        parent.appendChild(sourceBox);
-    }
+    if (displayIndex > 0) parent.appendChild(sourceBox);
 }
 
 
@@ -299,11 +401,8 @@ function addSources(parent, sources) {
 // ==============================
 
 function isValidTMUSource(url) {
-
     try {
-
         const parsed = new URL(url);
-
         return (
             parsed.protocol === "https:" &&
             (
@@ -311,7 +410,6 @@ function isValidTMUSource(url) {
                 parsed.hostname === "tmu.ac.in"
             )
         );
-
     } catch {
         return false;
     }
@@ -323,24 +421,18 @@ function isValidTMUSource(url) {
 // ==============================
 
 function getSourceName(url) {
-
     try {
-
         const parsed = new URL(url);
         const path = parsed.pathname.replace(/^\/|\/$/g, "");
 
-        if (!path) {
-            return "TMU Official Website";
-        }
+        if (!path) return "TMU Official Website";
 
         const parts = path.split("/");
         let lastPart = parts[parts.length - 1];
 
         const isPdf = lastPart.toLowerCase().endsWith(".pdf");
 
-        if (isPdf) {
-            lastPart = lastPart.slice(0, -4);
-        }
+        if (isPdf) lastPart = lastPart.slice(0, -4);
 
         let name = lastPart
             .replace(/[-_]+/g, " ")
@@ -348,9 +440,7 @@ function getSourceName(url) {
             .trim()
             .replace(/\b\w/g, l => l.toUpperCase());
 
-        if (!name) {
-            name = isPdf ? "TMU PDF Document" : "TMU Page";
-        }
+        if (!name) name = isPdf ? "TMU PDF Document" : "TMU Page";
 
         const names = {
             "exam overview": "TMU Examination Overview",
@@ -363,16 +453,9 @@ function getSourceName(url) {
 
         const lowerName = name.toLowerCase();
 
-        if (names[lowerName]) {
-            return names[lowerName];
-        }
-
-        if (isPdf) {
-            return "PDF · " + name;
-        }
-
+        if (names[lowerName]) return names[lowerName];
+        if (isPdf) return "PDF · " + name;
         return name;
-
     } catch {
         return "TMU Official Website";
     }
@@ -384,7 +467,6 @@ function getSourceName(url) {
 // ==============================
 
 function addLoadingMessage() {
-
     const message = document.createElement("div");
     message.className = "message bot";
 
@@ -405,13 +487,18 @@ function addLoadingMessage() {
     return message;
 }
 
+function setLoadingText(loadingMessage, text) {
+    const content = loadingMessage.querySelector(".message-content");
+    if (content) content.textContent = text;
+    scrollToBottom();
+}
+
 
 // ==============================
 // SCROLL
 // ==============================
 
 function scrollToBottom() {
-
     if (chatArea) {
         chatArea.scrollTop = chatArea.scrollHeight;
     }
@@ -423,12 +510,10 @@ function scrollToBottom() {
 // ==============================
 
 function autoResize() {
-
     messageInput.style.height = "auto";
     messageInput.style.height =
         Math.min(messageInput.scrollHeight, 150) + "px";
 }
-
 
 messageInput.addEventListener("input", autoResize);
 
@@ -438,13 +523,11 @@ messageInput.addEventListener("input", autoResize);
 // ==============================
 
 messageInput.addEventListener("keydown", (event) => {
-
     if (event.key === "Enter" && !event.shiftKey) {
         event.preventDefault();
         sendMessage();
     }
 });
-
 
 sendBtn.addEventListener("click", sendMessage);
 
@@ -456,9 +539,7 @@ sendBtn.addEventListener("click", sendMessage);
 document
     .querySelectorAll("[data-question]")
     .forEach((button) => {
-
         button.addEventListener("click", () => {
-
             const question = button.dataset.question;
 
             messageInput.value = question;
@@ -475,14 +556,10 @@ document
 // ==============================
 
 newChatBtn.addEventListener("click", () => {
-
-    messages.innerHTML = "";
-    welcome.style.display = "block";
+    clearChat();
     messageInput.value = "";
-
     autoResize();
     messageInput.focus();
-
     sidebar.classList.remove("open");
 });
 
@@ -491,16 +568,12 @@ autoResize();
 
 
 // ==============================
-// RESOURCES + ABOUT (modal wrapper)
+// MODAL WRAPPER
 // ==============================
 
 function createInfoModal(title, content) {
-
     const existing = document.getElementById("infoModal");
-
-    if (existing) {
-        existing.remove();
-    }
+    if (existing) existing.remove();
 
     const overlay = document.createElement("div");
     overlay.id = "infoModal";
@@ -534,9 +607,7 @@ function createInfoModal(title, content) {
     overlay.appendChild(modal);
 
     overlay.addEventListener("click", (event) => {
-        if (event.target === overlay) {
-            overlay.remove();
-        }
+        if (event.target === overlay) overlay.remove();
     });
 
     document.body.appendChild(overlay);
@@ -544,18 +615,16 @@ function createInfoModal(title, content) {
     return overlay;
 }
 
-
 function getModalBody() {
     return document.querySelector("#infoModal .info-modal-body");
 }
 
 
 // ==============================
-// RESOURCES (dynamic — loads all PDFs from /resources)
+// RESOURCES
 // ==============================
 
 async function openResources() {
-
     createInfoModal(
         "TMU Resources",
         `
@@ -565,20 +634,12 @@ async function openResources() {
     );
 
     try {
-
         const resp = await fetch(RESOURCES_URL);
-
-        if (!resp.ok) {
-            throw new Error(`Server returned ${resp.status}`);
-        }
+        if (!resp.ok) throw new Error(`Server returned ${resp.status}`);
 
         const data = await resp.json();
-
         const modalBody = getModalBody();
-
-        if (!modalBody) {
-            return;
-        }
+        if (!modalBody) return;
 
         let html = `
             <p class="modal-description">
@@ -587,9 +648,7 @@ async function openResources() {
             </p>
         `;
 
-        // ---- Official pages ----
         if (data.pages && data.pages.length > 0) {
-
             html += `
                 <div class="resource-section">
                     <h4>Official Pages</h4>
@@ -614,16 +673,13 @@ async function openResources() {
             html += `</div></div>`;
         }
 
-        // ---- Downloadable PDFs ----
         if (data.pdf_groups && data.pdf_groups.length > 0) {
-
             html += `
                 <div class="resource-section">
                     <h4>Downloadable Documents</h4>
             `;
 
             data.pdf_groups.forEach((g) => {
-
                 html += `
                     <div class="pdf-group">
                         <div class="pdf-group-title">
@@ -659,13 +715,9 @@ async function openResources() {
         }
 
         modalBody.innerHTML = html;
-
     } catch (error) {
-
         console.error("Resources error:", error);
-
         const modalBody = getModalBody();
-
         if (modalBody) {
             modalBody.innerHTML = `
                 <p class="modal-description">
@@ -683,17 +735,12 @@ async function openResources() {
 // ==============================
 
 function openAbout() {
-
     createInfoModal(
         "About TMU AI Assistant",
-
         `
         <div class="about-content">
-
             <div class="about-logo">🤖</div>
-
             <h3>TMU AI Student Assistant</h3>
-
             <p>
                 An AI-powered student information assistant
                 designed to help students find information
@@ -731,7 +778,6 @@ function openAbout() {
             <div class="about-section">
                 <strong>Project Team</strong>
                 <div class="team-grid">
-
                     <div class="team-member">
                         <div class="team-avatar">AY</div>
                         <div class="team-info">
@@ -739,7 +785,6 @@ function openAbout() {
                             <small>Team Leader · BCA 5th Sem</small>
                         </div>
                     </div>
-
                     <div class="team-member">
                         <div class="team-avatar">AR</div>
                         <div class="team-info">
@@ -747,7 +792,6 @@ function openAbout() {
                             <small>BCA 5th Sem</small>
                         </div>
                     </div>
-
                     <div class="team-member">
                         <div class="team-avatar">AG</div>
                         <div class="team-info">
@@ -755,7 +799,6 @@ function openAbout() {
                             <small>BCA 5th Sem</small>
                         </div>
                     </div>
-
                     <div class="team-member">
                         <div class="team-avatar">AS</div>
                         <div class="team-info">
@@ -763,7 +806,6 @@ function openAbout() {
                             <small>BCA 5th Sem</small>
                         </div>
                     </div>
-
                 </div>
             </div>
 
@@ -777,7 +819,6 @@ function openAbout() {
                 information using the official TMU source
                 provided with the answer.
             </div>
-
         </div>
         `
     );
@@ -785,21 +826,18 @@ function openAbout() {
 
 
 // ==============================
-// FIND SIDEBAR BUTTONS
+// SIDEBAR INFO BUTTONS
 // ==============================
 
 function setupInfoButtons() {
-
     const sidebarItems = sidebar.querySelectorAll(
         "a, button, .nav-item, .sidebar-item, .side-item"
     );
 
     sidebarItems.forEach((item) => {
-
         const text = item.textContent.trim().toLowerCase();
 
         if (text.includes("resources")) {
-
             item.addEventListener("click", (event) => {
                 event.preventDefault();
                 openResources();
@@ -808,7 +846,6 @@ function setupInfoButtons() {
         }
 
         if (text.includes("about")) {
-
             item.addEventListener("click", (event) => {
                 event.preventDefault();
                 openAbout();
@@ -818,7 +855,6 @@ function setupInfoButtons() {
     });
 }
 
-
 setupInfoButtons();
 
 
@@ -827,13 +863,16 @@ setupInfoButtons();
 // ==============================
 
 document.addEventListener("keydown", (event) => {
-
     if (event.key === "Escape") {
-
         const modal = document.getElementById("infoModal");
-
-        if (modal) {
-            modal.remove();
-        }
+        if (modal) modal.remove();
     }
 });
+
+
+// ==============================
+// INIT — restore previous chat
+// ==============================
+
+loadChat();
+autoResize();
