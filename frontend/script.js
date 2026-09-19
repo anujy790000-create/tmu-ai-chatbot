@@ -46,6 +46,12 @@ const newChatBtn = document.getElementById("newChatBtn");
 let isSending = false;
 let isRestoring = false;
 
+// Tracks whether the backend has responded at least once
+// in this browser session. Once true, we don't show
+// the "server waking up" message again.
+let serverAwake =
+    sessionStorage.getItem("tmu-server-awake") === "1";
+
 
 // ==============================
 // HELPERS
@@ -209,13 +215,31 @@ async function sendMessage() {
 
     const loadingMessage = addLoadingMessage();
 
-    // --- Cold start hint ---
-    let wakingTimer = setTimeout(() => {
-        setLoadingText(
-            loadingMessage,
-            "Server is waking up… this may take up to 30 seconds."
-        );
-    }, 3000);
+    // --- Slow-response hint ---
+    // If the server hasn't been reached yet this session, show a
+    // cold-start message after 3 s. Otherwise show a neutral
+    // "still thinking" message after 8 s.
+    let wakingTimer = null;
+
+    if (!serverAwake) {
+
+        wakingTimer = setTimeout(() => {
+            setLoadingText(
+                loadingMessage,
+                "Server is waking up… this may take up to 60 seconds on the first request."
+            );
+        }, 3000);
+
+    } else {
+
+        wakingTimer = setTimeout(() => {
+            setLoadingText(
+                loadingMessage,
+                "Still thinking… free AI models can take 10–20 seconds to respond."
+            );
+        }, 8000);
+    }
+}
 
     try {
         const response = await fetch(
@@ -237,6 +261,11 @@ async function sendMessage() {
         }
 
         const data = await response.json();
+        // Mark the server as awake for the rest of this session
+        if (!serverAwake) {
+            serverAwake = true;
+            sessionStorage.setItem("tmu-server-awake", "1");
+    }
 
         loadingMessage.remove();
 
