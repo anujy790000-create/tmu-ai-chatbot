@@ -5,7 +5,7 @@ const body = document.body;
 // ==============================
 
 // Change this to your deployed HTTPS API later
-const API_URL = "https://tmu-smart-assistant.onrender.com/chat";;
+const API_URL = "https://tmu-smart-assistant.onrender.com/chat";
 
 // Stable per-browser session ID (enables follow-up questions)
 const SESSION_ID =
@@ -872,6 +872,60 @@ function openAbout() {
             </div>
 
 
+            <div class="about-section">
+
+                <strong>Project Team</strong>
+
+                <div class="team-grid">
+
+                    <div class="team-member">
+                        <div class="team-avatar">AY</div>
+                        <div class="team-info">
+                            <strong>Anuj Yadav</strong>
+                            <small>Team Leader · BCA 5th Sem</small>
+                        </div>
+                    </div>
+
+                    <div class="team-member">
+                        <div class="team-avatar">AR</div>
+                        <div class="team-info">
+                            <strong>Ankit Ram</strong>
+                            <small>BCA 5th Sem</small>
+                        </div>
+                    </div>
+
+                    <div class="team-member">
+                        <div class="team-avatar">AG</div>
+                        <div class="team-info">
+                            <strong>Abhigay Kr Gupta</strong>
+                            <small>BCA 5th Sem</small>
+                        </div>
+                    </div>
+
+                    <div class="team-member">
+                        <div class="team-avatar">AS</div>
+                        <div class="team-info">
+                            <strong>Abhishek Singh</strong>
+                            <small>BCA 5th Sem</small>
+                        </div>
+                    </div>
+
+                </div>
+
+            </div>
+
+
+            <div class="about-section">
+
+                <strong>Project Instructor</strong>
+
+                <p>
+                    Ms. Anvesha Sisodiya
+                </p>
+
+            </div>
+
+
             <div class="about-warning">
 
                 Always verify important or time-sensitive
@@ -889,9 +943,6 @@ function openAbout() {
 // ==============================
 // FIND SIDEBAR BUTTONS
 // ==============================
-// FIXED: the old check used text === "resources"
-// but textContent includes the emoji (e.g. "📚Resources"),
-// so the match never fired. Now uses .includes().
 
 function setupInfoButtons() {
 

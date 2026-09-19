@@ -702,7 +702,6 @@ body:not(.dark) .source-link {
 
     overflow-y: auto;
 
-    /* FIXED: use the theme variables */
     background: var(--bg);
     color: var(--text);
 
@@ -920,6 +919,59 @@ body:not(.dark) .source-link {
         rgba(255, 180, 0, 0.25);
 }
 
+/* ==============================
+   TEAM SECTION (About modal)
+   ============================== */
+
+.team-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+    margin-top: 12px;
+}
+
+.team-member {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 11px;
+    background: var(--sidebar);
+    border: 1px solid var(--border);
+}
+
+.team-avatar {
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 9px;
+    background: var(--text);
+    color: var(--bg);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+}
+
+.team-info {
+    min-width: 0;
+    line-height: 1.3;
+}
+
+.team-info strong {
+    display: block;
+    font-size: 13px;
+    margin-bottom: 2px;
+}
+
+.team-info small {
+    display: block;
+    font-size: 11px;
+    opacity: 0.65;
+}
+
 /* Mobile */
 
 @media (max-width: 600px) {
@@ -935,6 +987,10 @@ body:not(.dark) .source-link {
     }
 
     .resource-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .team-grid {
         grid-template-columns: 1fr;
     }
 }
