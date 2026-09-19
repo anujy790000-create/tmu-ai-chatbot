@@ -5,7 +5,7 @@ const body = document.body;
 // ==============================
 
 // Change this to your deployed HTTPS API later
-const API_URL = "http://127.0.0.1:8000/chat";
+const API_URL = "https://tmu-smart-assistant.onrender.com/chat";;
 
 // Stable per-browser session ID (enables follow-up questions)
 const SESSION_ID =
