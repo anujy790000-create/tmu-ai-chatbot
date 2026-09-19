@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TMU AI Assistant</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <div class="app">
+
+        <!-- Sidebar -->
+        <aside class="sidebar" id="sidebar">
+            <div class="sidebar-top">
+                <div class="brand">
+                    <div class="brand-logo">T</div>
+                    <span>TMU AI</span>
+                </div>
+
+                <button class="new-chat" id="newChatBtn">
+                    <span>＋</span>
+                    <span>New chat</span>
+                </button>
+            </div>
+
+            <div class="sidebar-section">
+                <div class="section-title">Quick access</div>
+
+                <button class="side-item" data-question="When are the upcoming exams?">
+                    <span>📅</span>
+                    <span>Examinations</span>
+                </button>
+
+                <button class="side-item" data-question="What is the attendance requirement?">
+                    <span>📊</span>
+                    <span>Attendance</span>
+                </button>
+
+                <button class="side-item" data-question="What scholarships are available?">
+                    <span>🎓</span>
+                    <span>Scholarships</span>
+                </button>
+
+                <button class="side-item" data-question="Show me the latest TMU notices.">
+                    <span>📢</span>
+                    <span>Notices</span>
+                </button>
+            </div>
+
+            <div class="sidebar-bottom">
+                <button class="side-item" id="resourcesBtn">
+                    <span>📚</span>
+                    <span>Resources</span>
+                </button>
+
+                <button class="side-item" id="aboutBtn">
+                    <span>ℹ️</span>
+                    <span>About</span>
+                </button>
+
+                <button class="theme-toggle" id="themeToggle">
+                    <span id="themeIcon">☀️</span>
+                    <span id="themeText">Light mode</span>
+                </button>
+            </div>
+        </aside>
+
+        <!-- Main -->
+        <main class="main">
+
+            <!-- Header -->
+            <header class="header">
+                <button class="mobile-menu" id="mobileMenu">
+                    ☰
+                </button>
+
+                <div class="header-title">
+                    <div class="status-dot"></div>
+                    <span>TMU AI Assistant</span>
+                </div>
+
+                <button class="header-theme" id="mobileThemeToggle">
+                    ☀️
+                </button>
+            </header>
+
+            <!-- Chat -->
+            <section class="chat-area" id="chatArea">
+
+                <div class="welcome" id="welcome">
+
+                    <div class="welcome-logo">
+                        T
+                    </div>
+
+                    <h1>How can I help you?</h1>
+
+                    <p>
+                        Ask me anything about Teerthanker Mahaveer University.
+                    </p>
+
+                    <div class="suggestions">
+
+                        <button class="suggestion"
+                                data-question="When are the upcoming exams?">
+                            <span>📅</span>
+                            <div>
+                                <strong>Examinations</strong>
+                                <small>Exam dates and information</small>
+                            </div>
+                        </button>
+
+                        <button class="suggestion"
+                                data-question="What is the attendance requirement?">
+                            <span>📊</span>
+                            <div>
+                                <strong>Attendance</strong>
+                                <small>Rules and requirements</small>
+                            </div>
+                        </button>
+
+                        <button class="suggestion"
+                                data-question="What scholarships are available?">
+                            <span>🎓</span>
+                            <div>
+                                <strong>Scholarships</strong>
+                                <small>Eligibility and applications</small>
+                            </div>
+                        </button>
+
+                        <button class="suggestion"
+                                data-question="Show me the latest TMU notices.">
+                            <span>📢</span>
+                            <div>
+                                <strong>Latest notices</strong>
+                                <small>Recent university updates</small>
+                            </div>
+                        </button>
+
+                    </div>
+                </div>
+
+                <div class="messages" id="messages"></div>
+
+            </section>
+
+            <!-- Input -->
+            <div class="input-wrapper">
+
+                <div class="input-box">
+
+                    <textarea
+                        id="messageInput"
+                        rows="1"
+                        placeholder="Ask anything about TMU..."
+                    ></textarea>
+
+                    <button id="sendBtn" class="send-btn">
+                        ↑
+                    </button>
+
+                </div>
+
+                <div class="input-footer">
+                    TMU AI Assistant can make mistakes. Always verify important information from official TMU sources.
+                </div>
+
+            </div>
+
+        </main>
+
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
