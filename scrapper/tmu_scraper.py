@@ -8,76 +8,79 @@ from datetime import datetime
 
 
 # ==============================
-# CURATED WHITELIST
+# WHITELIST WITH PER-PAGE PDF CAPS
 # ==============================
-# Every page that matters to students. Add more if needed.
-# No crawling — just fetch each URL + its PDFs.
+# (url, max_pdfs_to_keep)
+#
+# Order matters — put the most valuable pages first.
+# 0 = don't scrape PDFs from this page (just the page text).
 
 PAGES = [
-    # Root
-    "https://www.tmu.ac.in/",
+    # === HIGHEST VALUE — templates & project docs ===
+    ("https://www.tmu.ac.in/college-of-computing-sciences-and-it/project-templates", 30),
+    ("https://www.tmu.ac.in/college-of-computing-sciences-and-it", 10),
 
-    # Exams
-    "https://www.tmu.ac.in/tmu/exam-overview",
-    "https://www.tmu.ac.in/tmu/exam-ordinance",
-    "https://www.tmu.ac.in/tmu/cbcs-circulars",
+    # === Examination rules & ordinances ===
+    ("https://www.tmu.ac.in/tmu/exam-overview", 8),
+    ("https://www.tmu.ac.in/tmu/exam-ordinance", 10),
 
-    # Notices & circulars
-    "https://www.tmu.ac.in/notice-list",
+    # === Scholarships ===
+    ("https://www.tmu.ac.in/tmu/scholarship", 8),
 
-    # Scholarships
-    "https://www.tmu.ac.in/tmu/scholarship",
+    # === Policies, SOPs ===
+    ("https://www.tmu.ac.in/tmu/policies-sops", 12),
 
-    # Policies
-    "https://www.tmu.ac.in/tmu/policies-sops",
+    # === College pages (sample syllabi / handbooks) ===
+    ("https://www.tmu.ac.in/college-of-engineering", 6),
+    ("https://www.tmu.ac.in/college-of-management", 6),
+    ("https://www.tmu.ac.in/college-of-pharmacy", 6),
 
-    # CCSIT college
-    "https://www.tmu.ac.in/college-of-computing-sciences-and-it",
-    "https://www.tmu.ac.in/college-of-computing-sciences-and-it/project-templates",
+    # === Homepage (page text only) ===
+    ("https://www.tmu.ac.in/", 0),
 
-    # Other colleges (add more if you want them)
-    "https://www.tmu.ac.in/college-of-engineering",
-    "https://www.tmu.ac.in/college-of-management",
-    "https://www.tmu.ac.in/college-of-pharmacy",
+    # === SKIP PDFs from these (page text only) ===
+    ("https://www.tmu.ac.in/notice-list", 0),
+    ("https://www.tmu.ac.in/tmu/cbcs-circulars", 0),
 ]
 
 
 # ==============================
-# PDF FILTER (keep only useful reference docs)
+# HARD PDF KEYWORD FILTER
 # ==============================
+# Only filenames matching at least one of these are kept.
+# NOTHING else (no "circular", no "notice", no "result").
 
 KEEP_KEYWORDS = [
-    "template", "synopsis", "format", "specimen",
-    "proforma", "form", "affidavit", "undertaking",
+    "template", "synopsis", "proforma", "specimen",
+    "format", "affidavit", "undertaking",
 
-    "syllabus", "curriculum", "scheme", "grading",
-    "cbcs", "nep", "credit",
+    "syllabus", "curriculum",
+    "scheme_of_study", "scheme-of-study",
 
-    "ordinance", "policy", "policies", "sop",
-    "regulation", "handbook", "manual", "guideline",
-    "rules", "code_of_conduct", "code-of-conduct",
-    "anti-ragging", "anti_ragging", "grievance",
+    "ordinance", "academic_ordinance", "academic-ordinance",
+    "examination_ordinance", "examination-ordinance",
 
-    "examination_rules", "exam_rules",
-    "evaluation", "re-evaluation", "reappear_rules",
+    "sop", "policy", "policies", "guideline",
+    "handbook", "manual",
+
+    "anti-ragging", "anti_ragging",
+    "grievance", "code_of_conduct", "code-of-conduct",
 
     "academic_calendar", "academic-calendar",
-    "prospectus", "brochure", "scheme_of_study",
+    "prospectus",
 
     "internship", "project_report", "project-report",
     "project_guidelines", "minor_project", "major_project",
 
     "scholarship_rules", "scholarship_guidelines",
-    "scholarship_policy",
 ]
 
 SKIP_KEYWORDS = [
-    "result", "merit", "rank", "selection", "waiting",
-    "counseling", "counselling", "roll", "uid_", "uid-",
-    "student_list", "student-list", "admission_list",
-    "admission-list", "fee_receipt", "fee-receipt",
-    "answer_key", "answer-key",
-    "phd_entrance", "phd-entrance",
+    "result", "merit", "rank", "selection",
+    "waiting", "counseling", "counselling",
+    "roll", "student_list", "student-list",
+    "admission_list", "admission-list",
+    "fee_receipt", "answer_key", "answer-key",
 ]
 
 
@@ -85,9 +88,10 @@ DATA_DIR = "data"
 PDF_DIR = os.path.join(DATA_DIR, "pdfs")
 OUTPUT_FILE = os.path.join(DATA_DIR, "tmu_data.txt")
 
-MAX_PDF_SIZE_MB = 10
 REQUEST_TIMEOUT = 30
 DELAY = 0.4
+MAX_PDF_SIZE_MB = 10
+GLOBAL_PDF_CAP = 60
 
 
 HEADERS = {
@@ -119,6 +123,13 @@ def should_keep_pdf(url):
     return any(kw in u for kw in KEEP_KEYWORDS)
 
 
+def safe_filename(url, i):
+    name = url.rstrip("/").split("/")[-1]
+    if not name.lower().endswith(".pdf"):
+        name = f"document_{i}.pdf"
+    return name.replace("?", "_").replace("&", "_")
+
+
 def download_pdf(url, filename):
     os.makedirs(PDF_DIR, exist_ok=True)
     filepath = os.path.join(PDF_DIR, filename)
@@ -131,20 +142,15 @@ def download_pdf(url, filename):
         r.raise_for_status()
 
         cl = r.headers.get("content-length")
-        if cl:
-            mb = int(cl) / (1024 * 1024)
-            if mb > MAX_PDF_SIZE_MB:
-                print(f"  Skip ({mb:.1f} MB)")
-                return None
+        if cl and int(cl) / (1024 * 1024) > MAX_PDF_SIZE_MB:
+            return None
 
         with open(filepath, "wb") as f:
             for chunk in r.iter_content(8192):
                 f.write(chunk)
-
         return filepath
-
     except requests.RequestException as e:
-        print(f"  Download failed: {e}")
+        print(f"    download failed: {e}")
         return None
 
 
@@ -158,15 +164,8 @@ def extract_pdf_text(path):
                 pages.append(t)
         return clean_text("\n".join(pages))
     except Exception as e:
-        print(f"  Extract failed: {e}")
+        print(f"    extract failed: {e}")
         return ""
-
-
-def safe_filename(url, i):
-    name = url.rstrip("/").split("/")[-1]
-    if not name.lower().endswith(".pdf"):
-        name = f"document_{i}.pdf"
-    return name.replace("?", "_").replace("&", "_")
 
 
 def scrape_page(url):
@@ -174,7 +173,7 @@ def scrape_page(url):
         r = requests.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT)
         r.raise_for_status()
     except requests.RequestException as e:
-        print(f"  Failed: {e}")
+        print(f"    page failed: {e}")
         return "", []
 
     soup = BeautifulSoup(r.text, "html.parser")
@@ -214,45 +213,56 @@ def save_data(documents):
 
 def main():
     documents = []
-    all_pdfs = []
-    seen_names = set()
+    seen_filenames = set()
+    total_pdfs = 0
 
-    print("Fetching whitelisted pages...\n")
+    print("Fetching whitelisted pages (curated)...\n")
 
-    for url in PAGES:
-        print(f"→ {url}")
+    for url, max_pdfs in PAGES:
+
+        print(f"→ {url}  (max PDFs: {max_pdfs})")
+
         text, pdfs = scrape_page(url)
 
         if text:
             documents.append((url, text))
 
+        if max_pdfs == 0:
+            print(f"    page OK, skipping PDFs")
+            continue
+
+        kept_here = 0
         for pdf in pdfs:
+            if kept_here >= max_pdfs:
+                break
+            if total_pdfs >= GLOBAL_PDF_CAP:
+                break
             if not should_keep_pdf(pdf):
                 continue
+
             fname = safe_filename(pdf, 0)
-            if fname in seen_names:
+            if fname in seen_filenames:
                 continue
-            seen_names.add(fname)
-            all_pdfs.append(pdf)
+
+            seen_filenames.add(fname)
+            kept_here += 1
+            total_pdfs += 1
+
+            print(f"    [{total_pdfs}] {fname}")
+            path = download_pdf(pdf, fname)
+            if not path:
+                continue
+
+            pdf_text = extract_pdf_text(path)
+            if pdf_text:
+                documents.append((pdf, pdf_text))
+            else:
+                print(f"      (no text — skipped)")
 
         time.sleep(DELAY)
 
-    print(f"\nFound {len(all_pdfs)} relevant PDFs")
-
-    for i, url in enumerate(all_pdfs, 1):
-        print(f"\n[{i}/{len(all_pdfs)}] {url}")
-        path = download_pdf(url, safe_filename(url, i))
-        if not path:
-            continue
-        text = extract_pdf_text(path)
-        if text:
-            documents.append((url, text))
-            print("  OK")
-        else:
-            print("  No text")
-
     if not documents:
-        print("Nothing collected.")
+        print("\nNothing collected.")
         return
 
     save_data(documents)
@@ -261,7 +271,8 @@ def main():
     print("TMU KNOWLEDGE BASE UPDATED")
     print("=" * 40)
     print(f"Documents: {len(documents)}")
-    print(f"PDFs: {len(all_pdfs)}")
+    print(f"PDFs kept: {total_pdfs}")
+    print(f"Saved: {OUTPUT_FILE}")
 
 
 if __name__ == "__main__":
