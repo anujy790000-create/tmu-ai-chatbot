@@ -225,7 +225,7 @@ def scrape_page(url):
     internal_links = []
 
     for link in soup.find_all("a", href=True):
-        href = link["href"].strip()
+        href = link["href"].strip() 
         if not href or href.startswith("#") or href.startswith("javascript:"):
             continue
 
