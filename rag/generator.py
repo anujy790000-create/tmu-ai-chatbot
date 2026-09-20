@@ -22,23 +22,18 @@ client = OpenAI(
 # ==============================
 # MODEL CONFIGURATION
 # ==============================
-# Curated list of free, NON-reasoning models that produce complete
-# answers. Reasoning models consume max_tokens on hidden thinking
-# and produce truncated visible answers, so we avoid them.
-#
-# Order matters: first working model wins.
-# GLM is first because it has been the most reliable on the free tier.
-# Gemma models go last because Google's shared pool is often congested.
+# Prefer NON-reasoning models first — they answer directly
+# without dumping their internal "thinking" into the reply.
+# Reasoning models go last as fallback.
 
 MODEL_FALLBACKS = [
-    "z-ai/glm-5.2:free",                        # most reliable currently
-    "nvidia/nemotron-3-ultra-550b-a55b:free",   # large, different provider
-    "qwen/qwen3.8-27b:free",                    # instruction following
-    "google/gemma-4-26b-a4b-it:free",           # often rate-limited
-    "google/gemma-4-31b-it:free",               # often rate-limited
+    "google/gemma-4-26b-a4b-it:free",      # non-reasoning, fast
+    "google/gemma-4-31b-it:free",          # non-reasoning
+    "z-ai/glm-5.2:free",                   # fallback
+    "qwen/qwen3.8-27b:free",               # fallback
+    "nvidia/nemotron-3-ultra-550b-a55b:free",
 ]
 
-# Kept for backwards compatibility with any code importing MODEL
 MODEL = MODEL_FALLBACKS[0]
 
 
@@ -67,28 +62,35 @@ def _build_prompt(question, context, history):
         history_text = "\n".join(lines)
 
 
-    return f"""You are the TMU AI Student Assistant.
+    return f"""You are the TMU AI Student Assistant, a helpful chatbot for
+Teerthanker Mahaveer University students.
 
-Answer the student's question using ONLY the official
-TMU information provided below.
+Answer the student's question using ONLY the official TMU
+information provided below.
 
-Rules:
-- Do not invent information.
-- Do not use outside knowledge.
-- If the information is not present, say:
-  "I couldn't find this information in the available official TMU sources."
-- Keep the answer concise.
-- Use simple student-friendly language.
-- Preserve dates, percentages, deadlines and rules exactly.
-- Never claim access to private student information.
-- Do not guess current information.
-- Do not write "Source:".
-- Do not list the retrieved documents as a numbered list.
-- You MAY mention a URL only if it appears in the "Official TMU information" section below. When the user asks "where can I find X" or "how do I get X", always include the relevant URL from the context.
-- If the context names or lists what the user asked for (e.g. a template name, a form name), tell the user that name and point them to the URL where it's listed.
-- Do not repeat the question.
-- Do not use Markdown symbols such as ** or ##.
-- Answer directly.
+STRICT OUTPUT RULES:
+
+1. Output ONLY the final answer for the student.
+2. NEVER write your reasoning, thinking, or analysis. Do not write
+   phrases like "The user is asking...", "I need to find...",
+   "Looking at the document...", "Let me check...", "Based on the
+   provided...", or any step-by-step thought process.
+3. Keep the answer SHORT — 2 to 3 sentences maximum.
+4. Do not include an introduction or conclusion. Just answer.
+5. If different programs have different rules, give the most common
+   rule first (BCA/B.Tech/general), then briefly mention variations
+   in one sentence if relevant.
+6. Do not invent information. Use only the provided context.
+7. If the information is not present, say exactly:
+   "I couldn't find this information in the available official TMU sources."
+8. Preserve dates, percentages, deadlines and rules exactly.
+9. Never claim access to private student information.
+10. Do not write "Source:" or list retrieved documents.
+11. You MAY mention a URL only if it appears in the context below.
+    When the user asks "where can I find X", include the relevant URL.
+12. Do not repeat the question.
+13. Do not use Markdown symbols such as ** or ##.
+14. Answer directly in plain text.
 
 {f"Recent conversation:{chr(10)}{history_text}{chr(10)}" if history_text else ""}
 
@@ -98,8 +100,121 @@ Student question:
 Official TMU information:
 {context}
 
-Provide ONLY the final answer.
+Final answer (2-3 sentences, no reasoning):
 """
+
+
+# ==============================
+# CLEAN RESPONSE
+# ==============================
+
+# Phrases that signal a model is leaking its reasoning.
+REASONING_MARKERS = [
+    "the user is asking",
+    "the user wants",
+    "the student is asking",
+    "the student wants",
+    "i need to find",
+    "i need to check",
+    "i should check",
+    "let me check",
+    "let me look",
+    "let me think",
+    "looking at the",
+    "looking through the",
+    "based on the provided",
+    "based on the context",
+    "from the provided",
+    "from the context",
+    "first, i",
+    "first i will",
+    "i will check",
+    "i will look",
+    "to answer this",
+    "now, the",
+    "now i need",
+]
+
+
+def _clean_answer(answer):
+    """
+    Strip leaked reasoning and trim to a concise answer.
+    """
+
+    if not answer:
+        return answer
+
+    answer = answer.strip()
+
+    # 1) Remove common reasoning prefix before the real answer.
+    lower = answer.lower()
+
+    for marker in REASONING_MARKERS:
+
+        idx = lower.find(marker)
+
+        if idx == 0:
+
+            # Try to find where the real answer starts:
+            # usually after a double newline.
+            double_nl = answer.find("\n\n")
+
+            if double_nl > 0:
+
+                answer = answer[double_nl:].strip()
+                lower = answer.lower()
+
+            else:
+
+                # Fallback: find the first sentence that looks like
+                # a direct statement (starts with a capital, not "I").
+                sentences = re.split(r"(?<=[.!?])\s+", answer)
+
+                for i, s in enumerate(sentences):
+
+                    s_clean = s.strip()
+
+                    if (
+                        len(s_clean) > 20
+                        and not s_clean.lower().startswith(("i ", "the user", "let me"))
+                    ):
+                        answer = " ".join(sentences[i:]).strip()
+                        break
+
+            break
+
+    # 2) Remove any trailing "Let me know if..." / "I hope this helps"
+    cut_phrases = [
+        "let me know if",
+        "i hope this helps",
+        "feel free to ask",
+        "if you have any",
+    ]
+
+    lower = answer.lower()
+
+    for phrase in cut_phrases:
+
+        idx = lower.find(phrase)
+
+        if idx > 0:
+
+            answer = answer[:idx].strip().rstrip(".,;:")
+
+            lower = answer.lower()
+
+    # 3) Cap the answer to ~500 chars if still too long.
+    if len(answer) > 600:
+
+        # keep first 2 paragraphs
+        parts = re.split(r"\n\s*\n", answer)
+
+        if len(parts) >= 2:
+            answer = (parts[0] + "\n\n" + parts[1]).strip()
+        else:
+            answer = answer[:600].rsplit(" ", 1)[0] + "…"
+
+    return answer.strip()
 
 
 # ==============================
@@ -152,7 +267,7 @@ def _try_model(model, prompt, attempts=2):
                     }
                 ],
                 temperature=0.1,
-                max_tokens=600
+                max_tokens=400
             )
 
             if not response.choices:
@@ -168,10 +283,12 @@ def _try_model(model, prompt, attempts=2):
                 raise RuntimeError("Empty answer content")
 
             if choice.finish_reason == "length":
-
                 print("  WARNING: response truncated by max_tokens")
 
-            return answer.strip()
+            # Clean reasoning leaks + enforce brevity
+            answer = _clean_answer(answer)
+
+            return answer
 
         except Exception as error:
 
@@ -228,7 +345,6 @@ def generate_answer(question, context, history=None):
 
             msg = str(error).lower()
 
-            # Auth issues affect every model — stop immediately
             if "invalid api key" in msg or "401" in msg:
                 break
 
