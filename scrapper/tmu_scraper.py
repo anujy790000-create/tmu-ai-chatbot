@@ -40,7 +40,7 @@ PAGES = [
 
     # === SKIP PDFs from these (page text only) ===
     ("https://www.tmu.ac.in/notice-list", 0),
-    ("https://www.tmu.ac.in/tmu/cbcs-circulars", 0),
+    ("https://www.tmu.ac.in/tmu/cbcs-circulars", 5),
 ]
 
 
