@@ -108,6 +108,14 @@ SOURCE_PRIORITY = {
     "timetable": [
         "timetable", "schedule"
     ],
+    "documents": [
+        "project-templates",
+        "template",
+        "syllabus",
+        "exam-overview",
+        "policies-sops",
+        "scholarship",
+    ],
 
     "erp": [
         "erp", "policies-sops"
