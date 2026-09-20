@@ -22,13 +22,28 @@ client = OpenAI(
 # ==============================
 # MODEL CONFIGURATION
 # ==============================
+# 12 free models — maximises chance one succeeds when
+# the shared OpenRouter pool is congested. Non-reasoning
+# models first; reasoning models last.
 
 MODEL_FALLBACKS = [
+    # Tier 1: reliable non-reasoning
     "google/gemma-4-26b-a4b-it:free",
     "google/gemma-4-31b-it:free",
+    "meta-llama/llama-3.3-70b-instruct:free",
+    "mistralai/mistral-small-3.1-24b-instruct:free",
+
+    # Tier 2: other reliable models
     "z-ai/glm-5.2:free",
     "qwen/qwen3.8-27b:free",
+    "deepseek/deepseek-v4-flash-0731:free",
+    "dots-studio/dots-3-note-preview:free",
+
+    # Tier 3: last-resort options
     "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "nvidia/nemotron-3-super-120b-a12b:free",
+    "inclusionai/ling-3.0-flash-vl:free",
+    "nex-agi/nex-n2.5-pro:free",
 ]
 
 MODEL = MODEL_FALLBACKS[0]
@@ -65,60 +80,43 @@ Answer the student's question using ONLY the official TMU information below.
 
 STRICT OUTPUT RULES:
 
-1. Start your answer DIRECTLY with the information. Never begin with
-   any of these phrases:
-   - "Looking through..."
-   - "Looking at..."
-   - "I see..."
-   - "I found..."
-   - "The user is asking..."
-   - "Based on..."
-   - "According to the document..."
-   - "Let me..."
-   - "Here is what I found..."
-   - "The documents mention..."
+1. Start directly with the answer. Do NOT begin with phrases like
+   "Looking through", "Based on", "According to the document",
+   "I see", "I found", "The user is asking", or any preamble.
 
-2. Output ONLY the final answer. No reasoning, no thinking, no analysis.
+2. Output ONLY the final answer. No reasoning, no analysis.
 
-3. Keep the answer SHORT — 2 sentences maximum. No exceptions.
+3. Keep the answer SHORT — 2 sentences maximum.
 
 4. Do NOT quote documents verbatim. Summarize in your own words.
 
-5. Do NOT mention chapter numbers, section numbers, or document names
-   (no "Chapter 5", "Academic Ordinance 2022", "section 7.1", etc).
+5. Do NOT mention chapter numbers, section numbers, or document names.
 
-6. Give the general rule for BCA/B.Tech/regular programs. Only mention
-   other programs (Pharmacy, Medical, Nursing, Dental) if the question
-   is specifically about them.
+6. If different programs have different rules, give the general rule
+   first for BCA/B.Tech students.
 
-7. If the user asks about specific dates (exam dates, results dates,
-   admission deadlines) and you don't have the exact dates in the
-   context, DO NOT say "I couldn't find". Instead, tell them WHERE
-   the dates are published:
-   - Exam schedules → check the latest CBCS Circular at
-     https://www.tmu.ac.in/tmu/cbcs-circulars
-   - Admissions → check the Admission page
-   - Results → check the Examination Overview page
-   Use this format: "The exact dates are published in the latest
-   circular on [page URL]. Check the most recent entry there."
+7. If the user asks for specific dates (exam dates, deadlines) and
+   the exact dates are not in the context, tell them WHERE to find
+   them (e.g. "Check the latest circular at
+   https://www.tmu.ac.in/tmu/cbcs-circulars") instead of saying
+   "I couldn't find".
 
-7a. Only say "I couldn't find this information" if NO relevant
-    TMU source at all matches the question.
+8. If NO relevant information is in the context at all, say exactly:
+   "I couldn't find this information in the available official TMU sources."
 
-8. Preserve dates, percentages, and deadlines exactly.
+9. Preserve dates, percentages, and deadlines exactly.
 
-9. Never claim access to private student information.
+10. Never claim access to private student information.
 
-10. Do not write "Source:" or list retrieved documents.
+11. Do not write "Source:" or list retrieved documents.
 
-11. You MAY mention a URL only if it appears in the context below. When
-    the user asks "where can I find X", include the relevant URL.
+12. You MAY mention a URL only if it appears in the context below.
 
-12. Do not repeat the question.
+13. Do not repeat the question.
 
-13. Do not use Markdown symbols such as ** or ##.
+14. Do not use Markdown symbols such as ** or ##.
 
-14. Answer directly in plain text.
+15. Answer directly in plain text.
 
 {f"Recent conversation:{chr(10)}{history_text}{chr(10)}" if history_text else ""}
 
@@ -128,7 +126,7 @@ Student question:
 Official TMU information:
 {context}
 
-Answer (2 sentences max, start directly with the answer, no intro):
+Answer (2 sentences max, no introduction):
 """
 
 
@@ -136,122 +134,77 @@ Answer (2 sentences max, start directly with the answer, no intro):
 # CLEAN RESPONSE
 # ==============================
 
-# Sentence-starting patterns that indicate the model is narrating
-# its own reasoning rather than answering the question.
-REASONING_STARTS = (
-    "the user",
-    "the student",
-    "i need",
+REASONING_PREFIXES = (
+    "the user is asking",
+    "the user wants",
+    "the student is asking",
+    "i need to",
     "i should",
-    "i will",
-    "i'll",
+    "i will check",
+    "let me",
+    "looking at",
+    "looking through",
+    "searching",
+    "to answer",
+    "here is what",
+    "here's what",
     "i see",
     "i found",
-    "i can see",
-    "let me",
-    "looking",
-    "based on",
-    "from the",
-    "from this",
-    "first,",
-    "first i",
-    "now,",
-    "now i",
-    "to answer",
-    "searching",
-    "checking",
-    "considering",
-    "given the",
-    "reviewing",
-    "according to",
-    "here is",
-    "here's",
-    "the document",
-    "the documents",
-    "the provided",
-    "the context",
-    "the information provided",
-    "we can see",
-    "we see",
+    "based on the provided",
+    "based on the context",
+    "based on the documents",
+    "according to the document",
 )
 
 
 def _clean_answer(answer):
-    """
-    Filter at the sentence level: drop any sentence that looks like
-    reasoning, keep only real answer sentences.
-    """
 
     if not answer:
         return answer
 
     answer = answer.strip()
 
-    # ---- 1) Split into sentences ----
-    # Split on period/exclamation/question followed by space, AND on
-    # newlines. This catches sentences ending in colons too.
-    chunks = re.split(r"(?<=[.!?])\s+|\n+", answer)
+    sentences = re.split(r"(?<=[.!?])\s+", answer)
+    sentences = [s.strip() for s in sentences if s.strip()]
 
-    # ---- 2) Filter ----
-    real_sentences = []
+    if not sentences:
+        return answer
 
-    for s in chunks:
+    # Strip leading reasoning sentences only
+    while sentences:
+        first_lower = sentences[0].lower()
+        if any(first_lower.startswith(p) for p in REASONING_PREFIXES):
+            sentences.pop(0)
+        else:
+            break
 
-        s = s.strip()
+    # If everything was stripped, keep the last sentence
+    if not sentences:
+        all_s = [s.strip() for s in re.split(r"(?<=[.!?])\s+", answer) if s.strip()]
+        if all_s:
+            sentences = [all_s[-1]]
+        else:
+            return answer
 
-        if not s:
-            continue
+    sentences = sentences[:3]
+    cleaned = " ".join(sentences)
 
-        # Remove stray markdown / bullets
-        s = re.sub(r"^[-*\u2022\d.)\s]+", "", s).strip()
-
-        if len(s) < 15:
-            continue
-
-        s_lower = s.lower()
-
-        # Skip sentences that start with a reasoning marker
-        if any(s_lower.startswith(m) for m in REASONING_STARTS):
-            continue
-
-        real_sentences.append(s)
-
-    # ---- 3) Decide what to return ----
-
-    if not real_sentences:
-        # The model produced ONLY reasoning. Don't leak it.
-        # Return a short, honest message.
-        return (
-            "I couldn't generate a clean answer right now. "
-            "Please try rephrasing your question."
-        )
-
-    # Keep at most 3 sentences
-    real_sentences = real_sentences[:3]
-
-    cleaned = " ".join(real_sentences)
-
-    # ---- 4) Remove trailing soft phrases ----
+    # Remove trailing soft phrases
     cut_phrases = [
         "let me know if",
         "i hope this helps",
         "feel free to ask",
         "if you have any",
     ]
-
     lower = cleaned.lower()
-
     for phrase in cut_phrases:
-
         idx = lower.find(phrase)
-
         if idx > 0:
             cleaned = cleaned[:idx].strip().rstrip(".,;:")
             lower = cleaned.lower()
 
-    # ---- 5) Hard length cap ----
-    if len(cleaned) > 450:
-        cleaned = cleaned[:450].rsplit(" ", 1)[0] + "…"
+    if len(cleaned) > 500:
+        cleaned = cleaned[:500].rsplit(" ", 1)[0] + "…"
 
     return cleaned.strip()
 
@@ -261,29 +214,20 @@ def _clean_answer(answer):
 # ==============================
 
 def _is_rate_limit(error):
-
     s = str(error).lower()
-
     return "429" in s or ("rate" in s and "limit" in s)
 
 
 def _retry_after(error):
-
     s = str(error)
-
-    match = re.search(
-        r"retry_after_seconds['\"]?\s*:\s*['\"]?(\d+)",
-        s
-    )
-
+    match = re.search(r"retry_after_seconds['\"]?\s*:\s*['\"]?(\d+)", s)
     if match:
         return min(int(match.group(1)), 15)
-
     return None
 
 
 # ==============================
-# SINGLE MODEL CALL WITH RETRY
+# SINGLE MODEL CALL
 # ==============================
 
 def _try_model(model, prompt, attempts=2):
@@ -296,12 +240,7 @@ def _try_model(model, prompt, attempts=2):
 
             response = client.chat.completions.create(
                 model=model,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ],
+                messages=[{"role": "user", "content": prompt}],
                 temperature=0.1,
                 max_tokens=400
             )
@@ -310,22 +249,12 @@ def _try_model(model, prompt, attempts=2):
                 raise RuntimeError("Empty response")
 
             choice = response.choices[0]
-
-            print(f"  finish_reason: {choice.finish_reason}")
-
             raw = choice.message.content
 
             if not raw:
                 raise RuntimeError("Empty answer content")
 
-            if choice.finish_reason == "length":
-                print("  WARNING: response truncated by max_tokens")
-
-            print(f"  raw length: {len(raw)}")
-
             cleaned = _clean_answer(raw)
-
-            print(f"  cleaned length: {len(cleaned)}")
 
             return cleaned
 
@@ -334,16 +263,9 @@ def _try_model(model, prompt, attempts=2):
             last_error = error
 
             if _is_rate_limit(error) and attempt < attempts - 1:
-
-                delay = _retry_after(error) or 3
-
-                print(
-                    f"  -> 429 rate limit, waiting {delay}s "
-                    f"before retry..."
-                )
-
+                delay = _retry_after(error) or 2
+                print(f"  -> 429, waiting {delay}s...")
                 time.sleep(delay)
-
                 continue
 
             raise
@@ -361,15 +283,15 @@ def generate_answer(question, context, history=None):
 
     last_error = None
 
-    for model in MODEL_FALLBACKS:
+    for i, model in enumerate(MODEL_FALLBACKS, 1):
 
         try:
 
-            print(f"Trying OpenRouter model: {model}")
+            print(f"[{i}/{len(MODEL_FALLBACKS)}] Trying: {model}")
 
             answer = _try_model(model, prompt, attempts=2)
 
-            print(f"Success with: {model}")
+            print(f"  OK — {model}")
 
             return answer
 
@@ -377,10 +299,7 @@ def generate_answer(question, context, history=None):
 
             last_error = error
 
-            print(
-                f"  -> Failed: {type(error).__name__}: "
-                f"{str(error)[:200]}"
-            )
+            print(f"  X {type(error).__name__}: {str(error)[:150]}")
 
             msg = str(error).lower()
 
@@ -391,9 +310,9 @@ def generate_answer(question, context, history=None):
 
 
     print()
-    print("========== OPENROUTER FINAL ERROR ==========")
+    print("========== ALL MODELS FAILED ==========")
     print(last_error)
-    print("============================================")
+    print("=======================================")
     print()
 
     msg = str(last_error).lower() if last_error else ""
@@ -412,8 +331,8 @@ def generate_answer(question, context, history=None):
 
     if "429" in msg or "rate limit" in msg:
         return (
-            "The free AI models are temporarily busy. "
-            "Please try again in 30–60 seconds."
+            "The free AI models are all busy right now. "
+            "Please wait 30–60 seconds and try again."
         )
 
     if "timeout" in msg or "timed out" in msg:
