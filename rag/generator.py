@@ -22,27 +22,21 @@ client = OpenAI(
 # ==============================
 # MODEL CONFIGURATION
 # ==============================
-# 12 free models — maximises chance one succeeds when
-# the shared OpenRouter pool is congested. Non-reasoning
-# models first; reasoning models last.
+# Order matters. Non-reasoning, instruction-following models first.
+# Qwen/DeepSeek moved to the bottom — they tend to echo prompt text.
 
 MODEL_FALLBACKS = [
-    # Tier 1: reliable non-reasoning
     "google/gemma-4-26b-a4b-it:free",
     "google/gemma-4-31b-it:free",
     "meta-llama/llama-3.3-70b-instruct:free",
     "mistralai/mistral-small-3.1-24b-instruct:free",
-
-    # Tier 2: other reliable models
+    "dots-studio/dots-3-note-preview:free",
+    "inclusionai/ling-3.0-flash-vl:free",
     "z-ai/glm-5.2:free",
+    "nvidia/nemotron-3-super-120b-a12b:free",
+    "nvidia/nemotron-3-ultra-550b-a55b:free",
     "qwen/qwen3.8-27b:free",
     "deepseek/deepseek-v4-flash-0731:free",
-    "dots-studio/dots-3-note-preview:free",
-
-    # Tier 3: last-resort options
-    "nvidia/nemotron-3-ultra-550b-a55b:free",
-    "nvidia/nemotron-3-super-120b-a12b:free",
-    "inclusionai/ling-3.0-flash-vl:free",
     "nex-agi/nex-n2.5-pro:free",
 ]
 
@@ -52,6 +46,8 @@ MODEL = MODEL_FALLBACKS[0]
 # ==============================
 # PROMPT BUILDER
 # ==============================
+# The prompt is written as plain sentences — NOT a numbered list —
+# because some models echo numbered lists back as their answer.
 
 def _build_prompt(question, context, history):
 
@@ -74,59 +70,22 @@ def _build_prompt(question, context, history):
         history_text = "\n".join(lines)
 
 
-    return f"""You are the TMU AI Student Assistant.
+    return f"""You are a student assistant for Teerthanker Mahaveer University.
 
-Answer the student's question using ONLY the official TMU information below.
+Below this message you will find two sections: a student's question, and official TMU text excerpts. Your job is to write the student's answer.
 
-STRICT OUTPUT RULES:
+Write 2 short sentences that directly answer the student's question, using ONLY the official TMU text excerpts. Start the first sentence with the actual rule, fact, or answer — never with an introduction. Use plain language. Do not quote the excerpts word-for-word. Do not mention document names, chapter numbers, or section numbers. Do not output your analysis or thinking. If the excerpts mention multiple programs with different rules, give the general rule for BCA and B.Tech students.
 
-1. Start directly with the answer. Do NOT begin with phrases like
-   "Looking through", "Based on", "According to the document",
-   "I see", "I found", "The user is asking", or any preamble.
-
-2. Output ONLY the final answer. No reasoning, no analysis.
-
-3. Keep the answer SHORT — 2 sentences maximum.
-
-4. Do NOT quote documents verbatim. Summarize in your own words.
-
-5. Do NOT mention chapter numbers, section numbers, or document names.
-
-6. If different programs have different rules, give the general rule
-   first for BCA/B.Tech students.
-
-7. If the user asks for specific dates (exam dates, deadlines) and
-   the exact dates are not in the context, tell them WHERE to find
-   them (e.g. "Check the latest circular at
-   https://www.tmu.ac.in/tmu/cbcs-circulars") instead of saying
-   "I couldn't find".
-
-8. If NO relevant information is in the context at all, say exactly:
-   "I couldn't find this information in the available official TMU sources."
-
-9. Preserve dates, percentages, and deadlines exactly.
-
-10. Never claim access to private student information.
-
-11. Do not write "Source:" or list retrieved documents.
-
-12. You MAY mention a URL only if it appears in the context below.
-
-13. Do not repeat the question.
-
-14. Do not use Markdown symbols such as ** or ##.
-
-15. Answer directly in plain text.
+If the exact dates are not in the excerpts but the student is asking for dates, tell the student where to check instead of saying "I couldn't find". If nothing at all relevant is in the excerpts, reply exactly: I couldn't find this information in the available official TMU sources.
 
 {f"Recent conversation:{chr(10)}{history_text}{chr(10)}" if history_text else ""}
-
-Student question:
+--- STUDENT QUESTION ---
 {question}
 
-Official TMU information:
+--- OFFICIAL TMU TEXT EXCERPTS ---
 {context}
 
-Answer (2 sentences max, no introduction):
+--- YOUR ANSWER (2 sentences, plain text, no reasoning) ---
 """
 
 
@@ -135,26 +94,82 @@ Answer (2 sentences max, no introduction):
 # ==============================
 
 REASONING_PREFIXES = (
+    # First-person narration
     "the user is asking",
     "the user wants",
     "the student is asking",
+    "the student wants",
     "i need to",
     "i should",
     "i will check",
+    "i will look",
+    "i see",
+    "i found",
     "let me",
-    "looking at",
-    "looking through",
-    "searching",
+    # First-person plural (echo of prompt)
+    "we need to",
+    "we should",
+    "we can see",
+    "we see",
+    "we have",
+    # Meta / echoing the prompt
     "to answer",
     "here is what",
     "here's what",
-    "i see",
-    "i found",
     "based on the provided",
     "based on the context",
     "based on the documents",
+    "based on the excerpts",
     "according to the document",
+    "according to the excerpts",
+    "looking at",
+    "looking through",
+    "searching",
+    "checking",
+    "the answer should",
+    "the response should",
+    "provide short answer",
+    "must give",
+    "must provide",
+    "note that",
+    "remember to",
+    "keep in mind",
+    "as per the instructions",
+    "following the instructions",
+    "the rules say",
+    "the instructions say",
 )
+
+
+def _is_reasoning_sentence(s):
+    """True if a sentence looks like reasoning or prompt echo."""
+
+    s_lower = s.lower().strip()
+
+    # Direct prefix match
+    if any(s_lower.startswith(p) for p in REASONING_PREFIXES):
+        return True
+
+    # Contains suspicious meta phrases
+    meta_phrases = (
+        "using only official tmu",
+        "using only the provided",
+        "using only the excerpts",
+        "provide short answer",
+        "max 2 sentences",
+        "no preamble",
+        "no quoting",
+        "general rule first",
+        "must give general rule",
+        "answer the question",
+        "answer the student",
+        "the question asks",
+    )
+
+    if any(mp in s_lower for mp in meta_phrases):
+        return True
+
+    return False
 
 
 def _clean_answer(answer):
@@ -164,39 +179,57 @@ def _clean_answer(answer):
 
     answer = answer.strip()
 
+    # Split into sentences
     sentences = re.split(r"(?<=[.!?])\s+", answer)
     sentences = [s.strip() for s in sentences if s.strip()]
 
     if not sentences:
         return answer
 
-    # Strip leading reasoning sentences only
+    # Drop leading reasoning / echo sentences
     while sentences:
-        first_lower = sentences[0].lower()
-        if any(first_lower.startswith(p) for p in REASONING_PREFIXES):
+        if _is_reasoning_sentence(sentences[0]):
             sentences.pop(0)
         else:
             break
 
-    # If everything was stripped, keep the last sentence
+    # If everything got stripped, look for any middle sentence that
+    # looks like a real answer
     if not sentences:
-        all_s = [s.strip() for s in re.split(r"(?<=[.!?])\s+", answer) if s.strip()]
-        if all_s:
-            sentences = [all_s[-1]]
-        else:
-            return answer
 
+        all_s = [
+            s.strip()
+            for s in re.split(r"(?<=[.!?])\s+", answer)
+            if s.strip()
+        ]
+
+        good = [s for s in all_s if not _is_reasoning_sentence(s)]
+
+        if good:
+            sentences = good
+        else:
+            # Truly nothing usable — return honest failure
+            return (
+                "I couldn't generate a clean answer. "
+                "Please try rephrasing your question."
+            )
+
+    # Keep at most 3 sentences
     sentences = sentences[:3]
+
     cleaned = " ".join(sentences)
 
-    # Remove trailing soft phrases
-    cut_phrases = [
+    # Trim trailing soft phrases
+    cut_phrases = (
         "let me know if",
         "i hope this helps",
         "feel free to ask",
         "if you have any",
-    ]
+        "note:",
+    )
+
     lower = cleaned.lower()
+
     for phrase in cut_phrases:
         idx = lower.find(phrase)
         if idx > 0:
@@ -255,6 +288,10 @@ def _try_model(model, prompt, attempts=2):
                 raise RuntimeError("Empty answer content")
 
             cleaned = _clean_answer(raw)
+
+            # If the model echoed the prompt, reject and try next
+            if cleaned.lower().startswith(("we need", "we should", "we have")):
+                raise RuntimeError("Prompt echo detected")
 
             return cleaned
 
