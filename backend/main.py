@@ -13,7 +13,6 @@ from rag.search import (
 )
 
 from rag.generator import generate_answer
-from rag.live_search import search_tmu, fetch_page_text
 
 
 app = FastAPI(title="TMU AI Student Assistant")
@@ -170,7 +169,41 @@ def get_resources():
 
 
 # ==============================
-# CHAT (with live-search fallback)
+# PRIVACY GUARD
+# ==============================
+
+PERSONAL_KEYWORDS = [
+    "my attendance",
+    "my marks",
+    "my result",
+    "my results",
+    "my fee",
+    "my fees",
+    "my cgpa",
+    "my grades",
+    "my grade",
+    "my erp",
+    "my timetable",
+    "my time table",
+    "my profile",
+    "my account",
+    "my roll",
+    "my marksheet",
+    "my transcript",
+    "my balance",
+    "personal attendance",
+    "personal marks",
+    "personal result",
+]
+
+
+def _is_personal_query(question: str) -> bool:
+    q = question.lower()
+    return any(kw in q for kw in PERSONAL_KEYWORDS)
+
+
+# ==============================
+# CHAT
 # ==============================
 
 @app.post("/chat")
@@ -181,13 +214,37 @@ def chat(request: ChatRequest):
     if not question:
         return {"answer": "Please enter a question.", "sources": []}
 
+    # ---- PRIVACY GUARD (added) ----
+    if _is_personal_query(question):
+        return {
+            "answer": (
+                "I don't have access to personal student records such as "
+                "your attendance, marks, results, fees, or timetable. "
+                "Please check the TMU ERP portal or contact your department."
+            ),
+            "sources": [],
+        }
+
     history = SESSION_HISTORY.get(session_id, [])
 
-    # ---- Step 1: try the local knowledge base ----
+    # ---- Search the knowledge base ----
     results = search_knowledge_base(question, max_results=3)
 
-    sources = []
+    if not results:
+        history.append({"role": "user", "content": question})
+        SESSION_HISTORY[session_id] = history[-MAX_HISTORY:]
+
+        return {
+            "answer": (
+                "I couldn't find this information in the available "
+                "official TMU sources. Please check the official TMU "
+                "website or contact the relevant university department."
+            ),
+            "sources": [],
+        }
+
     context_parts = []
+    sources = []
 
     for result in results:
         context_parts.append(result)
@@ -197,65 +254,6 @@ def chat(request: ChatRequest):
 
     context = "\n\n".join(context_parts)
 
-        # ---- Step 2: run live search when useful ----
-
-    live_used = False
-
-    # Keywords that signal the user wants something specific
-    # that may only exist on a page not yet scraped.
-    LOOKUP_KEYWORDS = [
-        "template", "synopsis", "proforma", "format",
-        "form", "download", "where can i find",
-        "where is", "link", "attachment",
-        "sample", "specimen", "example",
-        "how to apply", "how to fill",
-    ]
-
-    question_lower = question.lower()
-    wants_lookup = any(kw in question_lower for kw in LOOKUP_KEYWORDS)
-
-    # Run live search if:
-    #  - KB found nothing, OR
-    #  - question looks like a "find me a document" query
-    should_search_live = (not results) or wants_lookup or len(context) < 300
-
-    if should_search_live:
-        try:
-            live_results = search_tmu(question, max_results=3)
-        except Exception:
-            live_results = []
-
-        if live_results:
-            live_parts = []
-            for r in live_results[:2]:
-                page_text = fetch_page_text(r["url"])
-                if page_text:
-                    live_parts.append(
-                        f"SOURCE: {r['url']}\n{'-'*40}\n{page_text}"
-                    )
-                    if r["url"] not in sources:
-                        sources.append(r["url"])
-
-            if live_parts:
-                context = (context + "\n\n" + "\n\n".join(live_parts)).strip()
-                live_used = True
-
-    # ---- Step 3: nothing at all ----
-    if not context:
-        history.append({"role": "user", "content": question})
-        SESSION_HISTORY[session_id] = history[-MAX_HISTORY:]
-
-        return {
-            "answer": (
-                "I couldn't find this information in the "
-                "available official TMU sources. "
-                "Please check the official TMU website "
-                "or contact the relevant university department."
-            ),
-            "sources": [],
-        }
-
-    # ---- Step 4: generate ----
     answer = generate_answer(question, context, history=history)
 
     history.append({"role": "user", "content": question})
@@ -265,5 +263,4 @@ def chat(request: ChatRequest):
     return {
         "answer": answer,
         "sources": sources,
-        "live": live_used,
     }
