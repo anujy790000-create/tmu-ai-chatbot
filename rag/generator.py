@@ -81,6 +81,12 @@ STRICT OUTPUT RULES:
    rule first (BCA/B.Tech/general), then briefly mention variations
    in one sentence if relevant.
 6. Do not invent information. Use only the provided context.
+6a. Do NOT quote the document text verbatim. Summarize it in your
+    own words.
+6b. Do NOT mention chapter numbers, section numbers, or document
+    names (e.g. "Chapter 5", "Academic Ordinance 2022", "section 7.1").
+6c. Give the general rule first for BCA/B.Tech students. Only mention
+    other programs if the question is specifically about them.
 7. If the information is not present, say exactly:
    "I couldn't find this information in the available official TMU sources."
 8. Preserve dates, percentages, deadlines and rules exactly.
@@ -203,16 +209,21 @@ def _clean_answer(answer):
 
             lower = answer.lower()
 
-    # 3) Cap the answer to ~500 chars if still too long.
-    if len(answer) > 600:
+        # 3) Hard cap: keep only the first paragraph if the answer is long.
+        if len(answer) > 350:
 
-        # keep first 2 paragraphs
-        parts = re.split(r"\n\s*\n", answer)
+            parts = re.split(r"\n\s*\n", answer)
 
-        if len(parts) >= 2:
-            answer = (parts[0] + "\n\n" + parts[1]).strip()
-        else:
-            answer = answer[:600].rsplit(" ", 1)[0] + "…"
+            # Take only the first non-empty paragraph
+            for p in parts:
+                p = p.strip()
+                if len(p) > 30:
+                    answer = p
+                    break
+
+            # Still too long? Truncate at 350 chars.
+            if len(answer) > 350:
+                answer = answer[:350].rsplit(" ", 1)[0] + "…"
 
     return answer.strip()
 
