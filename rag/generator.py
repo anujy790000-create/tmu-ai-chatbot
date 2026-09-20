@@ -22,15 +22,12 @@ client = OpenAI(
 # ==============================
 # MODEL CONFIGURATION
 # ==============================
-# Prefer NON-reasoning models first — they answer directly
-# without dumping their internal "thinking" into the reply.
-# Reasoning models go last as fallback.
 
 MODEL_FALLBACKS = [
-    "google/gemma-4-26b-a4b-it:free",      # non-reasoning, fast
-    "google/gemma-4-31b-it:free",          # non-reasoning
-    "z-ai/glm-5.2:free",                   # fallback
-    "qwen/qwen3.8-27b:free",               # fallback
+    "google/gemma-4-26b-a4b-it:free",
+    "google/gemma-4-31b-it:free",
+    "z-ai/glm-5.2:free",
+    "qwen/qwen3.8-27b:free",
     "nvidia/nemotron-3-ultra-550b-a55b:free",
 ]
 
@@ -62,40 +59,54 @@ def _build_prompt(question, context, history):
         history_text = "\n".join(lines)
 
 
-    return f"""You are the TMU AI Student Assistant, a helpful chatbot for
-Teerthanker Mahaveer University students.
+    return f"""You are the TMU AI Student Assistant.
 
-Answer the student's question using ONLY the official TMU
-information provided below.
+Answer the student's question using ONLY the official TMU information below.
 
 STRICT OUTPUT RULES:
 
-1. Output ONLY the final answer for the student.
-2. NEVER write your reasoning, thinking, or analysis. Do not write
-   phrases like "The user is asking...", "I need to find...",
-   "Looking at the document...", "Let me check...", "Based on the
-   provided...", or any step-by-step thought process.
-3. Keep the answer SHORT — 2 to 3 sentences maximum.
-4. Do not include an introduction or conclusion. Just answer.
-5. If different programs have different rules, give the most common
-   rule first (BCA/B.Tech/general), then briefly mention variations
-   in one sentence if relevant.
-6. Do not invent information. Use only the provided context.
-6a. Do NOT quote the document text verbatim. Summarize it in your
-    own words.
-6b. Do NOT mention chapter numbers, section numbers, or document
-    names (e.g. "Chapter 5", "Academic Ordinance 2022", "section 7.1").
-6c. Give the general rule first for BCA/B.Tech students. Only mention
-    other programs if the question is specifically about them.
+1. Start your answer DIRECTLY with the information. Never begin with
+   any of these phrases:
+   - "Looking through..."
+   - "Looking at..."
+   - "I see..."
+   - "I found..."
+   - "The user is asking..."
+   - "Based on..."
+   - "According to the document..."
+   - "Let me..."
+   - "Here is what I found..."
+   - "The documents mention..."
+
+2. Output ONLY the final answer. No reasoning, no thinking, no analysis.
+
+3. Keep the answer SHORT — 2 sentences maximum. No exceptions.
+
+4. Do NOT quote documents verbatim. Summarize in your own words.
+
+5. Do NOT mention chapter numbers, section numbers, or document names
+   (no "Chapter 5", "Academic Ordinance 2022", "section 7.1", etc).
+
+6. Give the general rule for BCA/B.Tech/regular programs. Only mention
+   other programs (Pharmacy, Medical, Nursing, Dental) if the question
+   is specifically about them.
+
 7. If the information is not present, say exactly:
    "I couldn't find this information in the available official TMU sources."
-8. Preserve dates, percentages, deadlines and rules exactly.
+
+8. Preserve dates, percentages, and deadlines exactly.
+
 9. Never claim access to private student information.
+
 10. Do not write "Source:" or list retrieved documents.
-11. You MAY mention a URL only if it appears in the context below.
-    When the user asks "where can I find X", include the relevant URL.
+
+11. You MAY mention a URL only if it appears in the context below. When
+    the user asks "where can I find X", include the relevant URL.
+
 12. Do not repeat the question.
+
 13. Do not use Markdown symbols such as ** or ##.
+
 14. Answer directly in plain text.
 
 {f"Recent conversation:{chr(10)}{history_text}{chr(10)}" if history_text else ""}
@@ -106,7 +117,7 @@ Student question:
 Official TMU information:
 {context}
 
-Final answer (2-3 sentences, no reasoning):
+Answer (2 sentences max, start directly with the answer, no intro):
 """
 
 
@@ -114,37 +125,50 @@ Final answer (2-3 sentences, no reasoning):
 # CLEAN RESPONSE
 # ==============================
 
-# Phrases that signal a model is leaking its reasoning.
-REASONING_MARKERS = [
-    "the user is asking",
-    "the user wants",
-    "the student is asking",
-    "the student wants",
-    "i need to find",
-    "i need to check",
-    "i should check",
-    "let me check",
-    "let me look",
-    "let me think",
-    "looking at the",
-    "looking through the",
-    "based on the provided",
-    "based on the context",
-    "from the provided",
-    "from the context",
-    "first, i",
-    "first i will",
-    "i will check",
-    "i will look",
-    "to answer this",
-    "now, the",
-    "now i need",
-]
+# Sentence-starting patterns that indicate the model is narrating
+# its own reasoning rather than answering the question.
+REASONING_STARTS = (
+    "the user",
+    "the student",
+    "i need",
+    "i should",
+    "i will",
+    "i'll",
+    "i see",
+    "i found",
+    "i can see",
+    "let me",
+    "looking",
+    "based on",
+    "from the",
+    "from this",
+    "first,",
+    "first i",
+    "now,",
+    "now i",
+    "to answer",
+    "searching",
+    "checking",
+    "considering",
+    "given the",
+    "reviewing",
+    "according to",
+    "here is",
+    "here's",
+    "the document",
+    "the documents",
+    "the provided",
+    "the context",
+    "the information provided",
+    "we can see",
+    "we see",
+)
 
 
 def _clean_answer(answer):
     """
-    Strip leaked reasoning and trim to a concise answer.
+    Filter at the sentence level: drop any sentence that looks like
+    reasoning, keep only real answer sentences.
     """
 
     if not answer:
@@ -152,44 +176,51 @@ def _clean_answer(answer):
 
     answer = answer.strip()
 
-    # 1) Remove common reasoning prefix before the real answer.
-    lower = answer.lower()
+    # ---- 1) Split into sentences ----
+    # Split on period/exclamation/question followed by space, AND on
+    # newlines. This catches sentences ending in colons too.
+    chunks = re.split(r"(?<=[.!?])\s+|\n+", answer)
 
-    for marker in REASONING_MARKERS:
+    # ---- 2) Filter ----
+    real_sentences = []
 
-        idx = lower.find(marker)
+    for s in chunks:
 
-        if idx == 0:
+        s = s.strip()
 
-            # Try to find where the real answer starts:
-            # usually after a double newline.
-            double_nl = answer.find("\n\n")
+        if not s:
+            continue
 
-            if double_nl > 0:
+        # Remove stray markdown / bullets
+        s = re.sub(r"^[-*\u2022\d.)\s]+", "", s).strip()
 
-                answer = answer[double_nl:].strip()
-                lower = answer.lower()
+        if len(s) < 15:
+            continue
 
-            else:
+        s_lower = s.lower()
 
-                # Fallback: find the first sentence that looks like
-                # a direct statement (starts with a capital, not "I").
-                sentences = re.split(r"(?<=[.!?])\s+", answer)
+        # Skip sentences that start with a reasoning marker
+        if any(s_lower.startswith(m) for m in REASONING_STARTS):
+            continue
 
-                for i, s in enumerate(sentences):
+        real_sentences.append(s)
 
-                    s_clean = s.strip()
+    # ---- 3) Decide what to return ----
 
-                    if (
-                        len(s_clean) > 20
-                        and not s_clean.lower().startswith(("i ", "the user", "let me"))
-                    ):
-                        answer = " ".join(sentences[i:]).strip()
-                        break
+    if not real_sentences:
+        # The model produced ONLY reasoning. Don't leak it.
+        # Return a short, honest message.
+        return (
+            "I couldn't generate a clean answer right now. "
+            "Please try rephrasing your question."
+        )
 
-            break
+    # Keep at most 3 sentences
+    real_sentences = real_sentences[:3]
 
-    # 2) Remove any trailing "Let me know if..." / "I hope this helps"
+    cleaned = " ".join(real_sentences)
+
+    # ---- 4) Remove trailing soft phrases ----
     cut_phrases = [
         "let me know if",
         "i hope this helps",
@@ -197,35 +228,21 @@ def _clean_answer(answer):
         "if you have any",
     ]
 
-    lower = answer.lower()
+    lower = cleaned.lower()
 
     for phrase in cut_phrases:
 
         idx = lower.find(phrase)
 
         if idx > 0:
+            cleaned = cleaned[:idx].strip().rstrip(".,;:")
+            lower = cleaned.lower()
 
-            answer = answer[:idx].strip().rstrip(".,;:")
+    # ---- 5) Hard length cap ----
+    if len(cleaned) > 450:
+        cleaned = cleaned[:450].rsplit(" ", 1)[0] + "…"
 
-            lower = answer.lower()
-
-        # 3) Hard cap: keep only the first paragraph if the answer is long.
-        if len(answer) > 350:
-
-            parts = re.split(r"\n\s*\n", answer)
-
-            # Take only the first non-empty paragraph
-            for p in parts:
-                p = p.strip()
-                if len(p) > 30:
-                    answer = p
-                    break
-
-            # Still too long? Truncate at 350 chars.
-            if len(answer) > 350:
-                answer = answer[:350].rsplit(" ", 1)[0] + "…"
-
-    return answer.strip()
+    return cleaned.strip()
 
 
 # ==============================
@@ -241,8 +258,6 @@ def _is_rate_limit(error):
 
 def _retry_after(error):
 
-    """Extract Retry-After seconds from the error if present."""
-
     s = str(error)
 
     match = re.search(
@@ -251,7 +266,6 @@ def _retry_after(error):
     )
 
     if match:
-
         return min(int(match.group(1)), 15)
 
     return None
@@ -288,18 +302,21 @@ def _try_model(model, prompt, attempts=2):
 
             print(f"  finish_reason: {choice.finish_reason}")
 
-            answer = choice.message.content
+            raw = choice.message.content
 
-            if not answer:
+            if not raw:
                 raise RuntimeError("Empty answer content")
 
             if choice.finish_reason == "length":
                 print("  WARNING: response truncated by max_tokens")
 
-            # Clean reasoning leaks + enforce brevity
-            answer = _clean_answer(answer)
+            print(f"  raw length: {len(raw)}")
 
-            return answer
+            cleaned = _clean_answer(raw)
+
+            print(f"  cleaned length: {len(cleaned)}")
+
+            return cleaned
 
         except Exception as error:
 
@@ -371,28 +388,24 @@ def generate_answer(question, context, history=None):
     msg = str(last_error).lower() if last_error else ""
 
     if "invalid api key" in msg or "401" in msg:
-
         return (
             "The AI service authentication failed. "
             "Please contact the administrator."
         )
 
     if "402" in msg or "insufficient" in msg or "credits" in msg:
-
         return (
             "The AI service is out of credits. "
             "Please check your OpenRouter balance."
         )
 
     if "429" in msg or "rate limit" in msg:
-
         return (
-            "The free AI models are temporarily busy right now. "
-            "Please try again in about 30 seconds."
+            "The free AI models are temporarily busy. "
+            "Please try again in 30–60 seconds."
         )
 
     if "timeout" in msg or "timed out" in msg:
-
         return (
             "The AI service took too long to respond. "
             "Please try again in a moment."
