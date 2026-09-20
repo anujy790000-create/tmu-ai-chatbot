@@ -197,10 +197,29 @@ def chat(request: ChatRequest):
 
     context = "\n\n".join(context_parts)
 
-    # ---- Step 2: if KB is thin, use live search ----
+        # ---- Step 2: run live search when useful ----
+
     live_used = False
 
-    if not results or len(context) < 300:
+    # Keywords that signal the user wants something specific
+    # that may only exist on a page not yet scraped.
+    LOOKUP_KEYWORDS = [
+        "template", "synopsis", "proforma", "format",
+        "form", "download", "where can i find",
+        "where is", "link", "attachment",
+        "sample", "specimen", "example",
+        "how to apply", "how to fill",
+    ]
+
+    question_lower = question.lower()
+    wants_lookup = any(kw in question_lower for kw in LOOKUP_KEYWORDS)
+
+    # Run live search if:
+    #  - KB found nothing, OR
+    #  - question looks like a "find me a document" query
+    should_search_live = (not results) or wants_lookup or len(context) < 300
+
+    if should_search_live:
         try:
             live_results = search_tmu(question, max_results=3)
         except Exception:
