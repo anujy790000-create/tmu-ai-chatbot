@@ -811,7 +811,7 @@ function openAbout() {
                     <div class="team-member">
                         <div class="team-avatar">AG</div>
                         <div class="team-info">
-                            <strong>Abhigay Kr Gupta</strong>
+                            <strong>Abhigya Kr Gupta</strong>
                             <small>BCA 5th Sem</small>
                         </div>
                     </div>
